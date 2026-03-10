@@ -18,6 +18,7 @@ import { writeFileSync, existsSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { createCharacterFlow } from './create.js'
 import { runTestChat } from './test-chat.js'
+import { PROVIDER_INFO, detectRegion, getProviderInfo } from './llm-direct.js'
 
 const ROOT_DIR = process.cwd()
 
@@ -34,69 +35,112 @@ export async function runSetupWizard(): Promise<void> {
   console.log(chalk.gray('This will create a .env file with your settings.\n'))
 
   // ── Step 1: LLM Provider ────────────────────────────────────────────────
+  const region = detectRegion()
+  const isCN = region === 'cn'
+
   console.log(chalk.bold('\n📡 Step 1: Choose your AI brain\n'))
-  console.log(chalk.gray('Your companion needs an AI model to think. You need an API key from one of these providers.'))
-  console.log(chalk.gray('Both have free credits when you sign up.\n'))
+  if (isCN) {
+    console.log(chalk.cyan('  检测到中国大陆时区 — 优先显示国内可直连的模型\n'))
+  } else {
+    console.log(chalk.gray('  Your companion needs an AI to think. All providers below work.\n'))
+  }
+
+  // Build choice list — CN providers first for CN region
+  const cnFirst  = PROVIDER_INFO.filter(p => !p.requiresVPN && !p.isLocal)
+  const intl     = PROVIDER_INFO.filter(p =>  p.requiresVPN)
+  const local    = PROVIDER_INFO.filter(p =>  p.isLocal)
+
+  const orderedProviders = isCN
+    ? [...cnFirst, ...intl, ...local]
+    : [PROVIDER_INFO.find(p => p.id === 'anthropic')!, PROVIDER_INFO.find(p => p.id === 'openai')!, ...cnFirst, ...local]
 
   const { llmProvider } = await inquirer.prompt([{
     type: 'list',
     name: 'llmProvider',
-    message: 'Which AI provider do you want to use?',
-    choices: [
-      {
-        name: '🤖 Anthropic Claude (Recommended — best for character roleplay)',
-        value: 'anthropic',
-        short: 'Anthropic',
-      },
-      {
-        name: '🟢 OpenAI GPT-4',
-        value: 'openai',
-        short: 'OpenAI',
-      },
-      {
-        name: '🏠 Ollama (Run locally, completely free — requires a powerful computer)',
-        value: 'ollama',
-        short: 'Ollama',
-      },
-    ],
+    message: isCN ? '选择 AI 模型提供商:' : 'Which AI provider?',
+    choices: orderedProviders.map(p => ({
+      name: `${p.emoji}  ${p.name}\n     ${chalk.gray(isCN ? p.taglineCN : p.tagline)}`,
+      value: p.id,
+      short: p.name,
+    })),
   }])
 
   const envValues: Record<string, string> = { LLM_PROVIDER: llmProvider }
+  const providerInfo = getProviderInfo(llmProvider)!
 
-  if (llmProvider === 'anthropic') {
-    console.log(chalk.yellow('\n  👉 Get your API key at: https://console.anthropic.com'))
-    console.log(chalk.gray('  1. Create an account (free)')
-    )
-    console.log(chalk.gray('  2. Go to API Keys → Create Key'))
-    console.log(chalk.gray('  3. Copy the key (starts with "sk-ant-...")\n'))
+  // ── Collect API key for non-Ollama providers ──
+  if (llmProvider !== 'ollama') {
+    const keyUrl = isCN ? providerInfo.keyUrlCN : providerInfo.keyUrl
+    console.log(chalk.yellow(`\n  👉 ${isCN ? '获取 API Key: ' : 'Get API key: '}${keyUrl}\n`))
+
+    if (llmProvider === 'anthropic') {
+      console.log(chalk.gray(isCN
+        ? '  1. 注册账号 → API Keys → Create Key\n  2. 复制以 "sk-ant-" 开头的密钥\n'
+        : '  1. Create account → API Keys → Create Key\n  2. Copy the key (starts with "sk-ant-")\n'
+      ))
+    } else if (llmProvider === 'openai') {
+      console.log(chalk.gray(isCN
+        ? '  1. 注册 → API Keys → Create new secret key\n'
+        : '  1. Sign up → API Keys → Create new secret key\n'
+      ))
+    } else if (llmProvider === 'deepseek') {
+      console.log(chalk.gray(isCN
+        ? '  1. 注册 → API Keys → 创建 API Key\n  2. 新用户有免费额度\n'
+        : '  1. Sign up → API Keys → Create key\n  2. New users get free credits\n'
+      ))
+    } else if (llmProvider === 'qwen') {
+      console.log(chalk.gray(isCN
+        ? '  1. 登录阿里云控制台 → DashScope → API-KEY管理 → 创建\n'
+        : '  1. Aliyun console → DashScope → API-KEY management → Create\n'
+      ))
+    } else if (llmProvider === 'kimi') {
+      console.log(chalk.gray(isCN
+        ? '  1. 注册月之暗面 → 控制台 → API Keys → 新建\n'
+        : '  1. Sign up at Moonshot → Console → API Keys → New\n'
+      ))
+    } else if (llmProvider === 'zhipu') {
+      console.log(chalk.gray(isCN
+        ? '  1. 注册智谱开放平台 → 个人中心 → API Keys → 添加\n  2. 新用户赠送免费 tokens\n'
+        : '  1. Sign up at open.bigmodel.cn → API Keys → Add\n  2. Free tokens on signup\n'
+      ))
+    } else if (llmProvider === 'minimax') {
+      console.log(chalk.gray(isCN
+        ? '  1. 注册 MiniMax 开放平台 → 账号设置 → 接口密钥\n'
+        : '  1. Sign up at platform.minimaxi.com → Account → API Keys\n'
+      ))
+    }
 
     const { apiKey } = await inquirer.prompt([{
       type: 'password',
       name: 'apiKey',
-      message: 'Paste your Anthropic API key:',
+      message: isCN ? `粘贴你的 ${providerInfo.name} API Key:` : `Paste your ${providerInfo.name} API key:`,
       mask: '*',
-      validate: (v: string) => v.startsWith('sk-ant-') ? true : 'That doesn\'t look like an Anthropic key (should start with sk-ant-)',
+      validate: (v: string) => {
+        if (!v.trim()) return isCN ? '请输入 API Key' : 'API key required'
+        if (providerInfo.keyPrefix && !v.startsWith(providerInfo.keyPrefix)) {
+          return isCN
+            ? `Key 格式不对，应以 "${providerInfo.keyPrefix}" 开头`
+            : `Should start with "${providerInfo.keyPrefix}"`
+        }
+        return true
+      },
     }])
-    envValues.ANTHROPIC_API_KEY = apiKey
+
+    envValues[providerInfo.envKey] = apiKey
   }
 
-  if (llmProvider === 'openai') {
-    console.log(chalk.yellow('\n  👉 Get your API key at: https://platform.openai.com/api-keys\n'))
-    const { apiKey } = await inquirer.prompt([{
-      type: 'password',
-      name: 'apiKey',
-      message: 'Paste your OpenAI API key:',
-      mask: '*',
-      validate: (v: string) => v.startsWith('sk-') ? true : 'That doesn\'t look like an OpenAI key',
-    }])
-    envValues.OPENAI_API_KEY = apiKey
-  }
-
+  // ── Ollama ──
   if (llmProvider === 'ollama') {
-    console.log(chalk.yellow('\n  Make sure Ollama is running: https://ollama.ai'))
-    console.log(chalk.gray('  Run: ollama pull qwen2.5:72b\n'))
+    console.log(chalk.yellow(isCN
+      ? '\n  确保 Ollama 已运行: https://ollama.ai'
+      : '\n  Make sure Ollama is running: https://ollama.ai'
+    ))
+    console.log(chalk.gray(isCN
+      ? '  运行: ollama pull qwen2.5:7b\n'
+      : '  Run: ollama pull qwen2.5:7b\n'
+    ))
     envValues.OLLAMA_BASE_URL = 'http://localhost:11434'
-    envValues.OLLAMA_MODEL = 'qwen2.5:72b'
+    envValues.OLLAMA_MODEL = 'qwen2.5:7b'
   }
 
   // ── Step 2: Character ────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ import chalk from 'chalk'
 import ora from 'ora'
 import { join } from 'path'
 import { existsSync } from 'fs'
+import { callLLMDirect } from './llm-direct.js'
 
 const ROOT_DIR = process.cwd()
 
@@ -135,32 +136,5 @@ async function callLLM(
   apiKey: string,
   provider: string
 ): Promise<string> {
-  if (provider === 'anthropic') {
-    const Anthropic = (await import('@anthropic-ai/sdk')).default
-    const client = new Anthropic({ apiKey })
-    const resp = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 300,
-      system: systemPrompt,
-      messages: history,
-    })
-    const block = resp.content[0]
-    return block.type === 'text' ? block.text : ''
-  }
-
-  if (provider === 'openai') {
-    const OpenAI = (await import('openai')).default
-    const client = new OpenAI({ apiKey })
-    const resp = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      max_tokens: 300,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...history,
-      ],
-    })
-    return resp.choices[0]?.message?.content ?? ''
-  }
-
-  return '[No LLM configured for test chat]'
+  return callLLMDirect(provider, apiKey, systemPrompt, history, 300)
 }

@@ -31,10 +31,20 @@ export async function startOpenlove(): Promise<void> {
     charactersDir: join(ROOT_DIR, 'characters'),
     llm: {
       provider: config.LLM_PROVIDER as any,
+      // International
       anthropicApiKey: config.ANTHROPIC_API_KEY,
       openaiApiKey: config.OPENAI_API_KEY,
+      // Chinese providers
+      deepseekApiKey: config.DEEPSEEK_API_KEY,
+      qwenApiKey: config.DASHSCOPE_API_KEY,
+      kimiApiKey: config.MOONSHOT_API_KEY,
+      zhipuApiKey: config.ZHIPU_API_KEY,
+      minimaxApiKey: config.MINIMAX_API_KEY,
+      // Local
       ollamaBaseUrl: config.OLLAMA_BASE_URL,
       ollamaModel: config.OLLAMA_MODEL,
+      // Optional model override
+      model: config.LLM_MODEL,
     },
   })
 
@@ -162,8 +172,17 @@ function loadConfig(): Record<string, string | undefined> {
   return {
     CHARACTER_NAME: process.env.CHARACTER_NAME,
     LLM_PROVIDER: process.env.LLM_PROVIDER ?? 'anthropic',
+    LLM_MODEL: process.env.LLM_MODEL,
+    // International
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    // Chinese providers
+    DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+    DASHSCOPE_API_KEY: process.env.DASHSCOPE_API_KEY,
+    MOONSHOT_API_KEY: process.env.MOONSHOT_API_KEY,
+    ZHIPU_API_KEY: process.env.ZHIPU_API_KEY,
+    MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+    // Local
     OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
     OLLAMA_MODEL: process.env.OLLAMA_MODEL,
     DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN,
@@ -194,10 +213,15 @@ function validateConfig(config: Record<string, string | undefined>): void {
     process.exit(1)
   }
 
-  const hasLLM = config.ANTHROPIC_API_KEY || config.OPENAI_API_KEY || config.LLM_PROVIDER === 'ollama'
+  const hasLLM = config.ANTHROPIC_API_KEY || config.OPENAI_API_KEY
+    || config.DEEPSEEK_API_KEY || config.DASHSCOPE_API_KEY
+    || config.MOONSHOT_API_KEY || config.ZHIPU_API_KEY || config.MINIMAX_API_KEY
+    || config.LLM_PROVIDER === 'ollama'
   if (!hasLLM) {
     console.log(chalk.red('\n  ❌ No LLM API key configured'))
-    console.log(chalk.gray('  Add ANTHROPIC_API_KEY or OPENAI_API_KEY to .env'))
+    console.log(chalk.gray('  Add one of these to .env:'))
+    console.log(chalk.gray('  ANTHROPIC_API_KEY / OPENAI_API_KEY / DEEPSEEK_API_KEY'))
+    console.log(chalk.gray('  DASHSCOPE_API_KEY / MOONSHOT_API_KEY / ZHIPU_API_KEY / MINIMAX_API_KEY'))
     console.log(chalk.gray('  Or set LLM_PROVIDER=ollama for local inference'))
     process.exit(1)
   }

@@ -17,6 +17,7 @@ import { writeFileSync, readFileSync, mkdirSync, existsSync, copyFileSync } from
 import { join, extname } from 'path'
 import { exec } from 'child_process'
 import { PRESETS, CharacterPreset, AppearanceConfig } from './presets.js'
+import { callLLMDirect } from './llm-direct.js'
 
 const ROOT_DIR = process.cwd()
 
@@ -553,32 +554,8 @@ Base prompt: ${basePrompt}
 Optimize this into a vivid, effective portrait generation prompt. Preserve all physical details.`
 
   try {
-    if (provider === 'anthropic') {
-      const Anthropic = (await import('@anthropic-ai/sdk')).default
-      const client = new Anthropic({ apiKey })
-      const resp = await client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 300,
-        system,
-        messages: [{ role: 'user', content: userMsg }],
-      })
-      const block = resp.content[0]
-      if (block.type === 'text') return block.text.trim()
-    }
-
-    if (provider === 'openai') {
-      const OpenAI = (await import('openai')).default
-      const client = new OpenAI({ apiKey })
-      const resp = await client.chat.completions.create({
-        model: 'gpt-4o-mini',
-        max_tokens: 300,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: userMsg },
-        ],
-      })
-      return resp.choices[0]?.message?.content?.trim() ?? basePrompt
-    }
+    const result = await callLLMDirect(provider, apiKey, system, [{ role: 'user', content: userMsg }], 300)
+    return result.trim() || basePrompt
   } catch {
     // fall through to return basePrompt
   }
@@ -950,33 +927,7 @@ timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
 
 Be specific. Real people have contradictions. Make them feel alive.`
 
-  let text = ''
-
-  if (provider === 'anthropic') {
-    const Anthropic = (await import('@anthropic-ai/sdk')).default
-    const client = new Anthropic({ apiKey })
-    const resp = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      system,
-      messages: [{ role: 'user', content: prompt }],
-    })
-    const block = resp.content[0]
-    if (block.type !== 'text') throw new Error('Unexpected LLM response')
-    text = block.text
-  } else {
-    const OpenAI = (await import('openai')).default
-    const client = new OpenAI({ apiKey })
-    const resp = await client.chat.completions.create({
-      model: 'gpt-4o',
-      max_tokens: 2000,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: prompt },
-      ],
-    })
-    text = resp.choices[0]?.message?.content ?? ''
-  }
+  const text = await callLLMDirect(provider, apiKey, system, [{ role: 'user', content: prompt }], 2000)
 
   return parseAIResponse(text, answers.name, answers.gender)
 }
