@@ -1,0 +1,8 @@
+export { ConversationEngine } from './engine.js'
+export type { EngineConfig, IncomingMessage, OutgoingMessage, ProactiveTrigger } from './engine.js'
+export { loadBlueprint, buildSystemPrompt, scaffoldCharacter } from './blueprint/index.js'
+export type { Blueprint, BlueprintMeta } from './blueprint/index.js'
+export { MemorySystem } from './memory/index.js'
+export type { Message, Episode, MemoryContext } from './memory/index.js'
+export { LLMRouter } from './llm/index.js'
+export type { LLMConfig, LLMProvider, ChatMessage } from './llm/index.js'

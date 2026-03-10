@@ -1,0 +1,27 @@
+{
+  "name": "@openlove/autonomous",
+  "version": "0.1.0",
+  "description": "Autonomous behavior: scheduler, music awareness, drama tracking, proactive messaging",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@openlove/core": "workspace:*",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/node-cron": "^3.0.11",
+    "typescript": "^5.7.0",
+    "tsup": "^8.3.0"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "openlove",
+  "version": "0.1.0",
+  "description": "Your AI companion lives on your computer",
+  "private": true,
+  "scripts": {
+    "setup": "pnpm --filter @openlove/cli run setup",
+    "start": "pnpm --filter @openlove/cli run start",
+    "create-character": "pnpm --filter @openlove/cli run create",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.14.0"
+}

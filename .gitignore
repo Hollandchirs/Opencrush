@@ -1,0 +1,38 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.turbo/
+
+# Characters data (private — your companion's memories are yours)
+characters/*/memory.db
+characters/*/vectors/
+characters/*/.session
+characters/*/whatsapp-session/
+
+# Keep example characters
+!characters/example/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# Temp files
+tmp/
+.cache/

@@ -1,0 +1,27 @@
+{
+  "name": "@openlove/bridge-telegram",
+  "version": "0.1.0",
+  "description": "Telegram bridge: text, voice messages, media",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@openlove/core": "workspace:*",
+    "@openlove/media": "workspace:*",
+    "grammy": "^1.31.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsup": "^8.3.0"
+  }
+}
