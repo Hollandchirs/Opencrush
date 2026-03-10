@@ -2,13 +2,16 @@
   "name": "@openlove/autonomous",
   "version": "0.1.0",
   "description": "Autonomous behavior: scheduler, music awareness, drama tracking, proactive messaging",
-  "main": "./dist/index.mjs",
+  "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.mjs"
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm",
-    "dev": "tsup src/index.ts --format esm --watch",
+    "build": "tsup src/index.ts --format esm,cjs",
+    "dev": "tsup src/index.ts --format esm,cjs --watch",
     "clean": "rm -rf dist"
   },
   "dependencies": {

@@ -2,13 +2,16 @@
   "name": "@openlove/bridge-discord",
   "version": "0.1.0",
   "description": "Discord bridge: text, voice calls, media",
-  "main": "./dist/index.mjs",
+  "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.mjs"
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm",
-    "dev": "tsup src/index.ts --format esm --watch",
+    "build": "tsup src/index.ts --format esm,cjs",
+    "dev": "tsup src/index.ts --format esm,cjs --watch",
     "clean": "rm -rf dist"
   },
   "dependencies": {
