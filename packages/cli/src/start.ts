@@ -20,7 +20,8 @@ import { join } from 'path'
 import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs'
 
 const ROOT_DIR = process.env.INIT_CWD ?? process.cwd()
-const PID_FILE = join(ROOT_DIR, '.openlove.pid')
+// Use /tmp for PID file so it's always the same path regardless of cwd
+const PID_FILE = '/tmp/openlove.pid'
 
 /**
  * Kill any existing Openlove process found in the PID file.

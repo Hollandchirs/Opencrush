@@ -379,6 +379,10 @@ function isSelfieRequest(content: string): boolean {
  * Detect when LLM is "pretending" to send media without using tags.
  * DeepSeek often outputs "here you go" + blank lines where a [SELFIE:] tag should be.
  * Returns the likely media type, or null if no pretend-send detected.
+ *
+ * IMPORTANT: The USER message must also contain a media request intent.
+ * If the user is just chatting ("photo is ok babe") and the LLM spontaneously
+ * "sends" a photo, we should NOT inject media — the LLM is just roleplaying.
  */
 function detectPretendMedia(
   userMessage: string,
@@ -400,8 +404,21 @@ function detectPretendMedia(
   const hasGaps = /\n\s*\n\s*\n/.test(llmResponse)
   if (!hasGaps) return null
 
-  // Determine type from user message context
+  // CRITICAL: User message must also contain a media request intent.
+  // Without this, casual comments like "photo is ok babe" trigger false positives.
   const userLower = userMessage.toLowerCase()
+  const userWantsMedia = /send|show|see|take|give|wanna|want|can (i|you)|let me|拍|发|看|给|要/.test(userLower)
+    && /photo|pic|image|selfie|video|clip|voice|audio|hear|照|图|拍|视频|语音|声音/.test(userLower)
+
+  // Also allow if user is asking "where is" (follow-up to failed media)
+  const userFollowUp = /where.*(photo|pic|image|video|clip|selfie|it)|没(有)?发|没收到|怎么没|didn't (send|attach|go)/i.test(userLower)
+
+  if (!userWantsMedia && !userFollowUp) {
+    debugLog(`[Engine] Pretend-send suppressed: user message "${userMessage.slice(0, 60)}" has no media request intent`)
+    return null
+  }
+
+  // Determine type from user message context
   if (/video|clip|film|视频|录/.test(userLower)) return { type: 'video' }
   if (/voice|hear|listen|speak|sing|声音|语音/.test(userLower)) return { type: 'voice' }
 
@@ -509,6 +526,8 @@ function extractActivityContext(text: string): string {
  */
 function detectSceneRequest(userMessage: string, llmResponse: string): boolean {
   const combined = `${userMessage} ${llmResponse}`.toLowerCase()
+
+  // User-side scene patterns
   const scenePatterns = [
     /window view/i, /view from/i, /the view/i, /outside.*(window|view)/i,
     /sunset/i, /sunrise/i, /landscape/i, /scenery/i,
@@ -519,10 +538,27 @@ function detectSceneRequest(userMessage: string, llmResponse: string): boolean {
     /窗外/i, /风景/i, /看.*窗/i, /看.*外面/i,
     /not you/i, /not.*selfie/i, /not.*face/i,
   ]
-  // Also check if user explicitly asked for NOT a selfie
+
+  // LLM response scene patterns — if the LLM describes sending a scene photo
+  const llmScenePatterns = [
+    /photo.*(of|i took).*(flower|plant|tree|garden|sky|cloud|ocean|beach|mountain)/i,
+    /photo.*(of|i took).*(food|meal|dish|cake|dessert|drink|matcha|coffee|tea)/i,
+    /photo.*(of|i took).*(room|desk|setup|view|window|sunset|sunrise)/i,
+    /here's.*(the view|my view|the sky|the sunset|the sunrise|my room|my desk|my setup)/i,
+    /flower|floral|bouquet|bloom/i,
+    /farmer'?s? market/i,
+    /市场|花|风景|日落|日出|房间|桌子/i,
+  ]
+
   const userLower = userMessage.toLowerCase()
   if (/not (you|your face|a selfie)/i.test(userLower)) return true
-  return scenePatterns.some(p => p.test(combined))
+  if (scenePatterns.some(p => p.test(combined))) return true
+
+  // Check LLM response specifically for scene descriptions
+  const llmLower = llmResponse.toLowerCase()
+  if (llmScenePatterns.some(p => p.test(llmLower))) return true
+
+  return false
 }
 
 /**
@@ -549,15 +585,28 @@ function extractSceneContext(userMessage: string, llmResponse: string, character
   } else if (/setup|desk|workspace/.test(combined)) {
     parts.push('aesthetic desk setup with warm lighting')
     parts.push('sketchbook and stationery visible')
+  } else if (/flower|floral|bouquet|bloom|garden/.test(combined)) {
+    parts.push('beautiful fresh flowers close-up')
+    if (/market|farmer/.test(combined)) parts.push('at a farmer\'s market stall')
+    else parts.push('natural soft lighting')
   } else if (/room|place|apartment/.test(combined)) {
     parts.push('cozy apartment interior')
     parts.push('warm ambient lighting')
   } else if (/sunset|sunrise/.test(combined)) {
     parts.push('beautiful sunset sky')
     parts.push('warm golden and pink hues')
+  } else if (/sky|cloud|outdoor|outside|park|street/.test(combined)) {
+    parts.push('beautiful outdoor scenery')
+    parts.push('natural daylight')
   } else {
-    // Generic scene from LLM response context
-    parts.push(`scene described by ${characterName}`)
+    // Generic scene from LLM response context — try to extract nouns
+    const llmLower = llmResponse.toLowerCase()
+    const subjectMatch = llmLower.match(/photo.*(of|i took)\s+(?:some\s+)?(.{5,40})/)
+    if (subjectMatch) {
+      parts.push(subjectMatch[2].replace(/[.!,].*/, '').trim())
+    } else {
+      parts.push(`scene described by ${characterName}`)
+    }
   }
 
   // Add time context
