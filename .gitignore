@@ -14,8 +14,16 @@ dist/
 # Characters data (private — your companion's memories are yours)
 characters/*/memory.db
 characters/*/vectors/
+characters/*/reference.*
+characters/*/social-media/
 characters/*/.session
 characters/*/whatsapp-session/
+
+# OAuth tokens (secrets)
+.twitter-oauth2-tokens.json
+
+# Test scripts with credentials
+test-twitter-oauth2.mjs
 
 # Keep example characters
 !characters/example/

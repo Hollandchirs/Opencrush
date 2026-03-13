@@ -101,7 +101,7 @@ export const listFilesTool: ToolDefinition = {
         const size = stat.size < 1024 ? `${stat.size}B` : `${(stat.size / 1024).toFixed(0)}KB`
         return `📄 ${entry.name} (${size})`
       } catch {
-        return `📄 ${entry.name}`
+        return `📄 ${entry.name}` /* stat failed — show name only */
       }
     })
 
@@ -175,7 +175,7 @@ export const searchFilesTool: ToolDefinition = {
       const output = execSync(command, { timeout: 10_000, encoding: 'utf-8' })
       return output || 'No matches found.'
     } catch {
-      return 'No matches found.'
+      return 'No matches found.' /* grep/find returned non-zero */
     }
   },
 }

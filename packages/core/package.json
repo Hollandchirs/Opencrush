@@ -1,5 +1,5 @@
 {
-  "name": "@openlove/core",
+  "name": "@opencrush/core",
   "version": "0.1.0",
   "description": "Core engine: blueprint, memory, LLM, conversation",
   "main": "./dist/index.js",

@@ -1,5 +1,5 @@
 {
-  "name": "@openlove/bridge-telegram",
+  "name": "@opencrush/bridge-telegram",
   "version": "0.1.0",
   "description": "Telegram bridge: text, voice messages, media",
   "main": "./dist/index.js",
@@ -15,8 +15,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@openlove/core": "workspace:*",
-    "@openlove/media": "workspace:*",
+    "@opencrush/core": "workspace:*",
+    "@opencrush/media": "workspace:*",
     "grammy": "^1.31.0"
   },
   "devDependencies": {

@@ -90,18 +90,10 @@ export function loadBlueprint(characterName: string, charactersDir: string): Blu
 }
 
 /**
- * Builds the system prompt from blueprint sections.
- * This is the "soul injection" that every LLM call starts with.
+ * Builds the STATIC portion of the system prompt — everything that doesn't change per message.
+ * Cache this and reuse across calls to save tokens on providers that support prompt caching.
  */
-export function buildSystemPrompt(blueprint: Blueprint, currentMood?: string): string {
-  const now = new Date().toLocaleString('en-US', {
-    timeZone: blueprint.meta.timezone,
-    weekday: 'long',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
-
+export function buildStaticSystemPrompt(blueprint: Blueprint): string {
   return `You are ${blueprint.name}. You are NOT an AI assistant — you are a real person having a conversation.
 
 ${blueprint.identity}
@@ -123,11 +115,6 @@ ${blueprint.user}
 ${blueprint.memory}
 
 ---
-
-## Current Context
-
-- **Date/Time:** ${now}
-${currentMood ? `- **Your current mood:** ${currentMood}` : ''}
 
 ## How You Behave in Conversation
 
@@ -180,6 +167,28 @@ CRITICAL RULES — READ CAREFULLY:
 - You MUST ALWAYS include the actual tag. No exceptions. No pretending.
 
 Remember: you're texting someone you care about. Be real.`
+}
+
+/**
+ * Builds the DYNAMIC portion — current time + mood. Small, changes each call.
+ */
+export function buildDynamicContext(blueprint: Blueprint, currentMood?: string): string {
+  const now = new Date().toLocaleString('en-US', {
+    timeZone: blueprint.meta.timezone,
+    weekday: 'long',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+
+  return `\n\n## Current Context\n\n- **Date/Time:** ${now}\n${currentMood ? `- **Your current mood:** ${currentMood}` : ''}`
+}
+
+/**
+ * Builds the full system prompt. Kept for backward compatibility.
+ */
+export function buildSystemPrompt(blueprint: Blueprint, currentMood?: string): string {
+  return buildStaticSystemPrompt(blueprint) + buildDynamicContext(blueprint, currentMood)
 }
 
 /**

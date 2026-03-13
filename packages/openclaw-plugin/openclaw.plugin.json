@@ -1,6 +1,6 @@
 {
-  "id": "openlove",
-  "name": "Openlove AI Companion",
+  "id": "opencrush",
+  "name": "Opencrush AI Companion",
   "version": "0.1.0",
   "description": "AI companion that lives on your computer — file access, browser automation, selfies, voice, music, and more",
   "configSchema": {

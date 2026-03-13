@@ -1,7 +1,7 @@
 {
-  "name": "@openlove/openclaw-plugin",
+  "name": "@opencrush/openclaw-plugin",
   "version": "0.1.0",
-  "description": "Openlove as an openclaw plugin — AI companion with computer file access, browser automation, and API integration",
+  "description": "Opencrush as an openclaw plugin — AI companion with computer file access, browser automation, and API integration",
   "main": "./dist/index.js",
   "exports": {
     ".": {
@@ -15,9 +15,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@openlove/core": "workspace:*",
-    "@openlove/media": "workspace:*",
-    "@openlove/autonomous": "workspace:*"
+    "@opencrush/core": "workspace:*",
+    "@opencrush/media": "workspace:*",
+    "@opencrush/autonomous": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

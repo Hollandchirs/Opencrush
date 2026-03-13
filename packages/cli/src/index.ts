@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Openlove CLI Entry Point
+ * Opencrush CLI Entry Point
  *
  * Commands:
- *   openlove setup    — Interactive first-time setup
- *   openlove start    — Start your companion
- *   openlove create   — Create a new character
- *   openlove status   — Show current status
+ *   opencrush setup    — Interactive first-time setup
+ *   opencrush start    — Start your companion
+ *   opencrush create   — Create a new character
+ *   opencrush status   — Show current status
  */
 
 import 'dotenv/config'
@@ -37,8 +37,8 @@ async function main(): Promise<void> {
         return
       }
 
-      const { startOpenlove } = await import('./start.js')
-      await startOpenlove()
+      const { startOpencrush } = await import('./start.js')
+      await startOpencrush()
       break
     }
 
@@ -55,10 +55,10 @@ async function main(): Promise<void> {
         await runSetupWizard()
       }
 
-      console.log(chalk.magenta('\n  💝 Waking up Openlove...\n'))
-      const { killExistingProcess, startOpenlove } = await import('./start.js')
+      console.log(chalk.magenta('\n  💝 Waking up Opencrush...\n'))
+      const { killExistingProcess, startOpencrush } = await import('./start.js')
       killExistingProcess()
-      await startOpenlove()
+      await startOpencrush()
       break
     }
 
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
       const { existsSync, readdirSync } = await import('fs')
       const { join } = await import('path')
 
-      console.log(chalk.magenta('\n  💝 Openlove Status\n'))
+      console.log(chalk.magenta('\n  💝 Opencrush Status\n'))
 
       const hasEnv = existsSync(join(process.cwd(), '.env'))
       console.log(`  Config: ${hasEnv ? chalk.green('✓ .env found') : chalk.red('✗ No .env — run: pnpm setup')}`)
@@ -99,7 +99,7 @@ async function main(): Promise<void> {
     case 'help':
     case '-h': {
       console.log(`
-  ${chalk.magenta('💝 Openlove')} — Your AI companion
+  ${chalk.magenta('💝 Opencrush')} — Your AI companion
 
   ${chalk.bold('Usage:')}
     ${chalk.cyan('pnpm setup')}        First-time setup wizard
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
     ${chalk.gray('characters/<name>/')} Your companion's blueprint files
 
   ${chalk.bold('Documentation:')}
-    ${chalk.gray('https://github.com/Hollandchirs/Openlove')}
+    ${chalk.gray('https://github.com/Hollandchirs/Opencrush')}
       `)
       break
     }

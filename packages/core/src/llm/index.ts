@@ -57,6 +57,9 @@ export interface LLMConfig {
   ollamaBaseUrl?: string
   ollamaModel?: string
 
+  // Embedding — Jina AI (free 1M tokens/mo, multilingual including Chinese)
+  jinaApiKey?: string
+
   // Override the model for any provider (optional)
   model?: string
 
@@ -96,12 +99,29 @@ export class LLMRouter {
   async chat(
     systemPrompt: string,
     messages: ChatMessage[],
-    _options: { stream?: boolean } = {}
+    options: { stream?: boolean; staticPromptBreakpoint?: number } = {}
   ): Promise<string> {
-    if (this.config.provider === 'anthropic') {
-      return this.chatAnthropic(systemPrompt, messages)
+    const maxRetries = 3
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (this.config.provider === 'anthropic') {
+          return await this.chatAnthropic(systemPrompt, messages, options.staticPromptBreakpoint)
+        }
+        return await this.chatOpenAICompat(systemPrompt, messages)
+      } catch (err) {
+        const isRetryable = isRetryableError(err)
+        if (attempt < maxRetries && isRetryable) {
+          const backoffMs = 1000 * Math.pow(2, attempt - 1) // 1s, 2s, 4s
+          console.warn(`[LLM] Attempt ${attempt} failed (${(err as Error).message}), retrying in ${backoffMs}ms...`)
+          await new Promise(r => setTimeout(r, backoffMs))
+          continue
+        }
+        throw err
+      }
     }
-    return this.chatOpenAICompat(systemPrompt, messages)
+
+    throw new Error('[LLM] All retry attempts exhausted')
   }
 
   async generate(prompt: string, systemContext?: string): Promise<string> {
@@ -131,8 +151,38 @@ export class LLMRouter {
       return data.embeddings[0]
     }
 
-    // CN providers don't have a standard embedding endpoint — fall back to pseudo-embed
+    // Jina AI — free multilingual embeddings (1M tokens/mo), supports Chinese natively
+    if (this.config.jinaApiKey) {
+      return this.embedJina(text)
+    }
+
+    // Last resort: pseudo-embed (not semantically meaningful, but prevents crashes)
     return simplePseudoEmbed(text)
+  }
+
+  private async embedJina(text: string): Promise<number[]> {
+    const resp = await fetch('https://api.jina.ai/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.config.jinaApiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'jina-embeddings-v3',
+        task: 'text-matching',
+        dimensions: 512,
+        input: [text],
+      }),
+    })
+
+    if (!resp.ok) {
+      const errText = await resp.text()
+      console.error(`[LLM/Jina] Embedding error (${resp.status}):`, errText)
+      return simplePseudoEmbed(text)
+    }
+
+    const data = await resp.json() as { data: Array<{ embedding: number[] }> }
+    return data.data[0].embedding
   }
 
   get characterName(): string {
@@ -141,12 +191,26 @@ export class LLMRouter {
 
   // ── Private ───────────────────────────────────────────────────────────────
 
-  private async chatAnthropic(systemPrompt: string, messages: ChatMessage[]): Promise<string> {
+  private async chatAnthropic(
+    systemPrompt: string,
+    messages: ChatMessage[],
+    staticBreakpoint?: number
+  ): Promise<string> {
     if (!this.anthropic) throw new Error('Anthropic client not initialized')
+
+    // Use prompt caching: split system into static (cached) + dynamic blocks
+    const system: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> =
+      staticBreakpoint && staticBreakpoint > 0
+        ? [
+            { type: 'text', text: systemPrompt.slice(0, staticBreakpoint), cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: systemPrompt.slice(staticBreakpoint) },
+          ]
+        : [{ type: 'text', text: systemPrompt }]
+
     const resp = await this.anthropic.messages.create({
       model: this.config.model ?? 'claude-sonnet-4-6',
       max_tokens: this.config.maxTokens ?? 1024,
-      system: systemPrompt,
+      system,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
     })
     const block = resp.content[0]
@@ -205,4 +269,22 @@ function simplePseudoEmbed(text: string): number[] {
   }
   const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1
   return vec.map(v => v / norm)
+}
+
+// ── Retry logic ──────────────────────────────────────────────────────────
+
+function isRetryableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+
+  // Rate limits (429)
+  if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests')) return true
+  // Server errors (5xx)
+  if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504')) return true
+  // Network errors
+  if (msg.includes('econnreset') || msg.includes('econnrefused') || msg.includes('timeout') || msg.includes('fetch failed')) return true
+  // Overloaded
+  if (msg.includes('overloaded') || msg.includes('capacity')) return true
+
+  return false
 }

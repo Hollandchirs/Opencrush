@@ -1,27 +1,32 @@
 {
-  "name": "openlove",
+  "name": "opencrush",
   "version": "0.1.0",
   "description": "Your AI companion lives on your computer",
   "private": true,
   "scripts": {
-    "setup": "pnpm --filter @openlove/cli run setup",
-    "start": "pnpm --filter @openlove/cli run start",
-    "wakeup": "pnpm --filter @openlove/cli run wakeup",
-    "create-character": "pnpm --filter @openlove/cli run create",
+    "setup": "pnpm --filter @opencrush/cli run setup",
+    "start": "pnpm --filter @opencrush/cli run start",
+    "wakeup": "pnpm --filter @opencrush/cli run wakeup",
+    "create-character": "pnpm --filter @opencrush/cli run create",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "clean": "turbo run clean"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
     "turbo": "^2.3.0",
     "typescript": "^5.7.0",
-    "@types/node": "^22.0.0",
-    "tsup": "^8.3.0"
+    "vitest": "^4.1.0"
   },
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
   },
-  "packageManager": "pnpm@9.14.0"
+  "packageManager": "pnpm@9.14.0",
+  "dependencies": {
+    "agent-twitter-client": "^0.0.18",
+    "goat-x": "^1.4.4"
+  }
 }

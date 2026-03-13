@@ -26,7 +26,7 @@ import {
 } from 'discord.js'
 import { appendFileSync } from 'fs'
 
-const DEBUG_LOG = '/tmp/openlove-debug.log'
+const DEBUG_LOG = '/tmp/opencrush-debug.log'
 function debugLog(msg: string): void {
   const ts = new Date().toISOString()
   const line = `[${ts}] ${msg}\n`
@@ -43,10 +43,10 @@ import {
   entersState,
   EndBehaviorType,
 } from '@discordjs/voice'
-import { ConversationEngine, OutgoingMessage } from '@openlove/core'
-import { MediaEngine } from '@openlove/media'
+import { ConversationEngine, OutgoingMessage } from '@opencrush/core'
+import { MediaEngine } from '@opencrush/media'
 import { Readable } from 'stream'
-import type { ActivityState } from '@openlove/autonomous'
+import type { ActivityState } from '@opencrush/autonomous'
 
 // Dynamic import for prism-media (Opus decoding)
 let prism: any = null

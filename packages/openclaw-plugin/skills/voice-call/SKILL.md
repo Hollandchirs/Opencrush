@@ -1,10 +1,10 @@
 ---
-name: openlove-voice
+name: opencrush-voice
 description: Send voice messages and manage voice interactions
 user-invocable: true
 ---
 
-Send voice messages using `openlove_voice_message` tool.
+Send voice messages using `opencrush_voice_message` tool.
 
 ## When to Use
 
@@ -15,7 +15,7 @@ Send voice messages using `openlove_voice_message` tool.
 
 ## How to Use
 
-Call `openlove_voice_message` with:
+Call `opencrush_voice_message` with:
 - `text`: What you want to say. Write naturally — the TTS engine handles tone and emotion.
 
 The tool converts your text to natural speech (ElevenLabs or Edge TTS) and saves it as an MP3 file.

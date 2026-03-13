@@ -1,10 +1,10 @@
-# Contributing to Openlove
+# Contributing to Opencrush
 
-Thank you for wanting to make Openlove better. This guide helps you get started.
+Thank you for wanting to make Opencrush better. This guide helps you get started.
 
 ## Ways to Contribute
 
-- 🐛 **Fix bugs** — check [Issues](https://github.com/Hollandchirs/Openlove/issues)
+- 🐛 **Fix bugs** — check [Issues](https://github.com/Hollandchirs/Opencrush/issues)
 - 🌉 **Add a bridge** — WhatsApp, iMessage, Line, Signal...
 - 🎨 **Improve character templates** — better defaults for SOUL.md, IDENTITY.md
 - 🧠 **Improve memory** — better retrieval, consolidation, pruning
@@ -14,8 +14,8 @@ Thank you for wanting to make Openlove better. This guide helps you get started.
 ## Getting Started
 
 ```bash
-git clone https://github.com/Hollandchirs/Openlove.git
-cd Openlove
+git clone https://github.com/Hollandchirs/Opencrush.git
+cd Opencrush
 
 # Install dependencies
 npm install -g pnpm
@@ -26,7 +26,7 @@ cp .env.example .env
 # Edit .env with your API keys
 
 # Run a specific package in dev mode
-pnpm --filter @openlove/core dev
+pnpm --filter @opencrush/core dev
 ```
 
 ## Project Structure
@@ -63,8 +63,8 @@ Bridges connect the conversation engine to a messaging platform.
 ```typescript
 // packages/bridges/myplatform/src/index.ts
 
-import { ConversationEngine, OutgoingMessage } from '@openlove/core'
-import { MediaEngine } from '@openlove/media'
+import { ConversationEngine, OutgoingMessage } from '@opencrush/core'
+import { MediaEngine } from '@opencrush/media'
 
 export class MyPlatformBridge {
   constructor(config: { engine: ConversationEngine; media: MediaEngine; /* platform config */ }) {}
@@ -105,5 +105,5 @@ Then add to `packages/cli/src/start.ts` and `packages/bridges/<name>/package.jso
 
 ## Questions?
 
-Open a [Discussion](https://github.com/Hollandchirs/Openlove/discussions) —
+Open a [Discussion](https://github.com/Hollandchirs/Opencrush/discussions) —
 no question is too basic.

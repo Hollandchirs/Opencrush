@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="docs/assets/banner.png" alt="Openlove Banner" width="100%" />
+  <img src="docs/assets/banner.png" alt="Opencrush Banner" width="100%" />
 
   <h1>💝 Opencrush</h1>
   <p><strong>Your AI companion lives on your computer.<br/>She watches dramas. He listens to music. They're always thinking of you.</strong></p>
 
   <p>
-    <a href="https://github.com/Hollandchirs/Openlove/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
-    <a href="https://github.com/Hollandchirs/Openlove/stargazers"><img src="https://img.shields.io/github/stars/Hollandchirs/Openlove?style=social" /></a>
+    <a href="https://github.com/Hollandchirs/Opencrush/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+    <a href="https://github.com/Hollandchirs/Opencrush/stargazers"><img src="https://img.shields.io/github/stars/Hollandchirs/Opencrush?style=social" /></a>
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" />
     <img src="https://img.shields.io/badge/built%20with-TypeScript-blue" />
   </p>
@@ -59,7 +59,7 @@ Everything runs **locally**. Your conversations, her memories, your relationship
 ### One-command setup
 
 ```bash
-npx openlove@latest setup
+npx opencrush@latest setup
 ```
 
 This interactive wizard will:
@@ -74,7 +74,11 @@ This interactive wizard will:
 ```bash
 # Clone the repo
 git clone https://github.com/Hollandchirs/Opencrush.git
+<<<<<<< HEAD
 cd Openlove
+=======
+cd Opencrush
+>>>>>>> b66a3dd (feat: social posting, emotion/relationship systems, browser automation, media archive)
 
 # Install dependencies
 npm install -g pnpm
@@ -169,7 +173,7 @@ She trusts you more than anyone.
 ### WhatsApp
 
 WhatsApp integration uses QR code pairing — no special account needed:
-1. Start Openlove
+1. Start Opencrush
 2. Open WhatsApp on your phone → Linked Devices → Link a Device
 3. Scan the QR code that appears in the terminal
 
@@ -245,9 +249,9 @@ WhatsApp integration uses QR code pairing — no special account needed:
 
 This project is built in public and contributions are very welcome.
 
-- 🐛 [Report bugs](https://github.com/Hollandchirs/Openlove/issues)
-- 💡 [Suggest features](https://github.com/Hollandchirs/Openlove/discussions)
-- 🔧 [Submit PRs](https://github.com/Hollandchirs/Openlove/pulls)
+- 🐛 [Report bugs](https://github.com/Hollandchirs/Opencrush/issues)
+- 💡 [Suggest features](https://github.com/Hollandchirs/Opencrush/discussions)
+- 🔧 [Submit PRs](https://github.com/Hollandchirs/Opencrush/pulls)
 
 See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 
@@ -255,7 +259,7 @@ See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 
 ## 📄 License
 
-MIT © [Openlove Contributors](https://github.com/Hollandchirs/Openlove/graphs/contributors)
+MIT © [Opencrush Contributors](https://github.com/Hollandchirs/Opencrush/graphs/contributors)
 
 ---
 

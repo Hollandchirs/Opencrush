@@ -19,7 +19,7 @@ function debugLog(msg: string): void {
   const ts = new Date().toISOString()
   const line = `[${ts}] ${msg}\n`
   console.log(msg)
-  try { appendFileSync('/tmp/openlove-debug.log', line) } catch { /* ignore */ }
+  try { appendFileSync('/tmp/opencrush-debug.log', line) } catch { /* ignore */ }
 }
 
 export interface VideoConfig {

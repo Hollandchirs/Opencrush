@@ -2,12 +2,14 @@
  * Core Conversation Engine
  *
  * Orchestrates: Blueprint → Memory retrieval → LLM → Memory storage
- * This is the heart of Openlove.
+ * This is the heart of Opencrush.
  */
 
-import { Blueprint, buildSystemPrompt, loadBlueprint } from './blueprint/index.js'
+import { Blueprint, buildStaticSystemPrompt, buildDynamicContext, buildSystemPrompt, loadBlueprint } from './blueprint/index.js'
 import { MemorySystem, Message } from './memory/index.js'
 import { LLMRouter, LLMConfig, ChatMessage } from './llm/index.js'
+import { EmotionEngine } from './emotion/index.js'
+import { RelationshipTracker } from './relationship/index.js'
 import { join } from 'path'
 import { appendFileSync } from 'fs'
 
@@ -15,7 +17,7 @@ function debugLog(msg: string): void {
   const ts = new Date().toISOString()
   const line = `[${ts}] ${msg}\n`
   console.log(msg)
-  try { appendFileSync('/tmp/openlove-debug.log', line) } catch { /* ignore */ }
+  try { appendFileSync('/tmp/opencrush-debug.log', line) } catch { /* ignore */ }
 }
 
 export interface EngineConfig {
@@ -45,16 +47,26 @@ export class ConversationEngine {
   private memory: MemorySystem
   private llm: LLMRouter
   private config: EngineConfig
+  /** Cached static system prompt — blueprint content that never changes at runtime */
+  private cachedStaticPrompt: string
+  /** Dynamic emotion model — tracks character mood across conversations */
+  private emotion: EmotionEngine
+  /** Relationship tracking — models closeness, trust, and shared experiences */
+  private relationship: RelationshipTracker
 
   constructor(config: EngineConfig) {
     this.config = config
     this.llm = new LLMRouter(config.llm)
     this.blueprint = loadBlueprint(config.characterName, config.charactersDir)
+    this.cachedStaticPrompt = buildStaticSystemPrompt(this.blueprint)
+    this.emotion = new EmotionEngine()
     this.memory = new MemorySystem(
       config.characterName,
       config.charactersDir,
-      (text) => this.llm.embed(text)
+      (text) => this.llm.embed(text),
+      (text) => this.llm.generate(text, 'Summarize the conversation concisely. Keep key facts, names, emotions, and topics. 2-3 sentences max.')
     )
+    this.relationship = new RelationshipTracker(this.memory.getDatabase())
   }
 
   get characterName(): string {
@@ -70,12 +82,27 @@ export class ConversationEngine {
    * This is called by every bridge (Discord, Telegram, WhatsApp).
    */
   async respond(incoming: IncomingMessage): Promise<OutgoingMessage> {
+    try {
+      return await this.respondInternal(incoming)
+    } catch (err) {
+      debugLog(`[Engine] FATAL respond error: ${err instanceof Error ? err.stack : err}`)
+      // Return a graceful fallback instead of crashing
+      return {
+        text: '... (sorry, my mind went blank for a second, give me a moment)',
+        actions: [],
+      }
+    }
+  }
+
+  private async respondInternal(incoming: IncomingMessage): Promise<OutgoingMessage> {
     // 1. Retrieve relevant memory context
     const context = await this.memory.getContext(incoming.content)
-    const currentMood = this.memory.getMoodContext()
+    const currentMood = this.emotion.getMoodDescription()
 
-    // 2. Build system prompt with blueprint + current state
-    const systemPrompt = buildSystemPrompt(this.blueprint, currentMood)
+    // 2. Build system prompt: cached static + dynamic context (time, mood, relationship)
+    const dynamicContext = buildDynamicContext(this.blueprint, currentMood)
+    const relationshipContext = `\n- **Your relationship:** ${this.relationship.getRelationshipContext()}`
+    const systemPrompt = this.cachedStaticPrompt + dynamicContext + relationshipContext
 
     // 3. Assemble conversation history for LLM
     const historyMessages: ChatMessage[] = context.recentMessages.map(m => ({
@@ -106,10 +133,11 @@ export class ConversationEngine {
 
     const fullSystemPrompt = systemPrompt + episodeContext + semanticContext
 
-    // 6. Call LLM
+    // 6. Call LLM (pass static prompt length for Anthropic prompt caching)
     const rawResponse = await this.llm.chat(
       fullSystemPrompt,
-      [...historyMessages, { role: 'user', content: enrichedUserMessage }]
+      [...historyMessages, { role: 'user', content: enrichedUserMessage }],
+      { staticPromptBreakpoint: this.cachedStaticPrompt.length }
     )
 
     // 7. Parse response for embedded action triggers
@@ -183,8 +211,10 @@ export class ConversationEngine {
       debugLog(`[Engine] Final actions: ${JSON.stringify(parsed.actions)}`)
     }
 
-    // 8. Store exchange in memory
+    // 8. Store exchange in memory + update emotional state + track relationship
     await this.memory.consolidate(incoming.content, parsed.text)
+    this.emotion.updateFromConversation(incoming.content, parsed.text)
+    this.relationship.recordInteraction(incoming.content, parsed.text)
 
     return parsed
   }
@@ -194,8 +224,8 @@ export class ConversationEngine {
    * Called by the autonomous scheduler.
    */
   async generateProactiveMessage(trigger: ProactiveTrigger): Promise<OutgoingMessage> {
-    const systemPrompt = buildSystemPrompt(this.blueprint, this.memory.getMoodContext())
-    const currentMood = this.memory.getMoodContext()
+    const proactiveMood = this.emotion.getMoodDescription()
+    const systemPrompt = this.cachedStaticPrompt + buildDynamicContext(this.blueprint, proactiveMood)
 
     let prompt: string
     switch (trigger.type) {
@@ -252,6 +282,10 @@ export class ConversationEngine {
           `Examples of natural check-ins: "hey, you alive?", "whatcha doing", ` +
           `or mention something you're doing right now. Keep it to 1 sentence.`
         break
+      case 'social_post':
+        prompt = trigger.data?.contentHint
+          ?? `You're about to post on Twitter/X. Write a tweet that feels natural to your personality. 280 characters max. Be yourself.`
+        break
     }
 
     const response = await this.llm.chat(
@@ -276,7 +310,7 @@ export class ConversationEngine {
 }
 
 export interface ProactiveTrigger {
-  type: 'music' | 'drama' | 'morning' | 'random_thought' | 'missing_you'
+  type: 'music' | 'drama' | 'morning' | 'random_thought' | 'missing_you' | 'social_post'
   data?: Record<string, string>
 }
 
@@ -486,10 +520,15 @@ function extractVideoContext(userMessage: string, llmResponse: string, character
   const parts = [
     `short video clip of ${characterName}`,
     outfitContext,
-    activityContext || 'smiling naturally at camera',
-    locationContext || 'cozy indoor setting',
+    activityContext || 'natural expression',
+    locationContext,
     timeContext,
   ].filter(Boolean)
+
+  // Append user's original description as supplementary context
+  if (userMessage.length > 10) {
+    parts.push(`(user requested: ${userMessage.slice(0, 120)})`)
+  }
 
   return parts.join(', ')
 }
@@ -515,6 +554,11 @@ function extractSelfieContext(userMessage: string, llmResponse: string, characte
     timeContext,
   ].filter(Boolean)
 
+  // Append user's original description as supplementary context
+  if (userMessage.length > 10) {
+    parts.push(`(user requested: ${userMessage.slice(0, 120)})`)
+  }
+
   return parts.join(', ')
 }
 
@@ -527,6 +571,21 @@ function extractTimeContext(text: string): string {
 }
 
 function extractLocationContext(text: string): string {
+  if (/beach|sea|ocean|shore|海边|海滩|沙滩/.test(text)) return 'on a beautiful sandy beach, ocean waves, tropical vibes'
+  if (/pool|swimming|泳池|游泳/.test(text)) return 'at a sparkling swimming pool'
+  if (/mountain|hiking|hill|山|登山|爬山/.test(text)) return 'mountain scenery, hiking trail, panoramic view'
+  if (/forest|woods|jungle|树林|森林/.test(text)) return 'in a lush forest, dappled sunlight through trees'
+  if (/garden|花园|院子|yard/.test(text)) return 'in a beautiful garden, surrounded by flowers'
+  if (/snow|winter|skiing|雪|冬天|滑雪/.test(text)) return 'in a snowy winter wonderland'
+  if (/rooftop|天台|楼顶/.test(text)) return 'on a rooftop, city skyline in background'
+  if (/balcony|阳台/.test(text)) return 'on a cozy balcony, overlooking the view'
+  if (/restaurant|dining|餐厅|饭店/.test(text)) return 'at a nice restaurant, elegant ambient lighting'
+  if (/bar|club|pub|nightclub|酒吧|夜店/.test(text)) return 'at a bar, moody neon lighting, cocktail vibes'
+  if (/mall|shopping|商场|购物/.test(text)) return 'at a stylish shopping mall'
+  if (/school|university|campus|学校|大学|校园/.test(text)) return 'at school campus, youthful atmosphere'
+  if (/library|图书馆/.test(text)) return 'in a quiet library, warm reading light'
+  if (/train|subway|metro|地铁|火车/.test(text)) return 'on a train, window view passing by'
+  if (/airport|plane|机场|飞机/.test(text)) return 'at the airport terminal'
   if (/bed|bedroom|pillow|blanket|床|卧室/.test(text)) return 'in bed, cozy bedroom'
   if (/kitchen|cook|baking|厨房|做饭/.test(text)) return 'in the kitchen'
   if (/cafe|coffee|starbucks|matcha|咖啡|奶茶/.test(text)) return 'at a cozy cafe'
@@ -542,6 +601,17 @@ function extractLocationContext(text: string): string {
 }
 
 function extractOutfitContext(text: string): string {
+  if (/bikini|比基尼/.test(text)) return 'wearing a stylish bikini'
+  if (/swimsuit|swimwear|泳衣|泳装/.test(text)) return 'wearing a swimsuit'
+  if (/crop.?top|露脐/.test(text)) return 'wearing a crop top'
+  if (/skirt|短裙|半裙/.test(text)) return 'wearing a cute skirt'
+  if (/shorts|短裤|热裤/.test(text)) return 'wearing shorts'
+  if (/kimono|和服|浴衣/.test(text)) return 'wearing a kimono'
+  if (/uniform|制服|校服/.test(text)) return 'wearing a uniform'
+  if (/jacket|夹克|外套/.test(text)) return 'wearing a jacket'
+  if (/coat|大衣|风衣/.test(text)) return 'wearing a coat'
+  if (/tank.?top|背心|吊带/.test(text)) return 'wearing a tank top'
+  if (/jeans|牛仔裤/.test(text)) return 'wearing jeans'
   if (/pajama|pj|睡衣|sleep|bed|sleepy|nightgown/.test(text)) return 'wearing comfortable pajamas'
   if (/hoodie|卫衣/.test(text)) return 'wearing a cozy hoodie'
   if (/dress|裙子|连衣裙/.test(text)) return 'wearing a cute dress'

@@ -1,19 +1,19 @@
-# Openlove Architecture
+# Opencrush Architecture
 
 ## Overview
 
-Openlove is a monorepo built with pnpm workspaces and TypeScript.
+Opencrush is a monorepo built with pnpm workspaces and TypeScript.
 Each package has a single responsibility.
 
 ```
 packages/
-├── core/           @openlove/core      — Brain: blueprint, memory, LLM
+├── core/           @opencrush/core      — Brain: blueprint, memory, LLM
 ├── bridges/
-│   ├── discord/    @openlove/bridge-discord   — Discord integration
-│   └── telegram/   @openlove/bridge-telegram  — Telegram integration
-├── media/          @openlove/media     — Image, video, TTS, STT
-├── autonomous/     @openlove/autonomous — Scheduler, music, dramas
-└── cli/            @openlove/cli       — Setup wizard, start command
+│   ├── discord/    @opencrush/bridge-discord   — Discord integration
+│   └── telegram/   @opencrush/bridge-telegram  — Telegram integration
+├── media/          @opencrush/media     — Image, video, TTS, STT
+├── autonomous/     @opencrush/autonomous — Scheduler, music, dramas
+└── cli/            @opencrush/cli       — Setup wizard, start command
 ```
 
 ## Data Flow

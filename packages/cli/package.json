@@ -1,9 +1,9 @@
 {
-  "name": "@openlove/cli",
+  "name": "@opencrush/cli",
   "version": "0.1.0",
   "description": "CLI: setup wizard, character creator, start command",
   "bin": {
-    "openlove": "./dist/index.js"
+    "opencrush": "./dist/index.js"
   },
   "main": "./dist/index.js",
   "exports": {
@@ -19,11 +19,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@openlove/core": "workspace:*",
-    "@openlove/bridge-discord": "workspace:*",
-    "@openlove/bridge-telegram": "workspace:*",
-    "@openlove/media": "workspace:*",
-    "@openlove/autonomous": "workspace:*",
+    "@opencrush/core": "workspace:*",
+    "@opencrush/bridge-discord": "workspace:*",
+    "@opencrush/bridge-telegram": "workspace:*",
+    "@opencrush/media": "workspace:*",
+    "@opencrush/autonomous": "workspace:*",
     "@anthropic-ai/sdk": "^0.32.0",
     "dotenv": "^16.4.7",
     "inquirer": "^12.3.0",

@@ -10,8 +10,8 @@
  */
 
 import { Bot, Context, InputFile } from 'grammy'
-import { ConversationEngine, OutgoingMessage } from '@openlove/core'
-import { MediaEngine } from '@openlove/media'
+import { ConversationEngine, OutgoingMessage } from '@opencrush/core'
+import { MediaEngine } from '@opencrush/media'
 
 export interface TelegramBridgeConfig {
   token: string

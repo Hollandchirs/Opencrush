@@ -1,8 +1,8 @@
 /**
- * Openlove — openclaw Plugin
+ * Opencrush — openclaw Plugin
  *
- * Registers Openlove as an openclaw extension, giving the AI agent:
- * - Companion tools: selfies, voice messages, video clips (unique to Openlove)
+ * Registers Opencrush as an openclaw extension, giving the AI agent:
+ * - Companion tools: selfies, voice messages, video clips (unique to Opencrush)
  * - Character personality injection via before_prompt_build hook
  * - Prompt-driven autonomous activity service (music, drama, browsing)
  *
@@ -10,14 +10,14 @@
  * provides these natively via its built-in Computer Use tools. The activity
  * service injects prompts that the AI executes using openclaw's own tools.
  *
- * Install: Copy to ~/.openclaw/extensions/openlove/
+ * Install: Copy to ~/.openclaw/extensions/opencrush/
  *
  * References:
  *   - https://docs.openclaw.ai/tools/plugin
  *   - https://github.com/openclaw/openclaw/blob/main/extensions/memory-core/index.ts
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir, tmpdir } from 'os'
 
@@ -53,8 +53,8 @@ interface OpenClawPluginApi {
 // ── Plugin Module ────────────────────────────────────────────────────────────
 
 const plugin = {
-  id: 'openlove',
-  name: 'Openlove AI Companion',
+  id: 'opencrush',
+  name: 'Opencrush AI Companion',
   description: 'AI companion with selfies, voice messages, video clips, and autonomous daily activities',
 
   configSchema: {
@@ -77,12 +77,12 @@ const plugin = {
   },
 
   register(api: OpenClawPluginApi): void {
-    const log = (msg: string) => api.logger?.info?.(`[Openlove] ${msg}`)
+    const log = (msg: string) => api.logger?.info?.(`[Opencrush] ${msg}`)
     log('Registering plugin...')
 
     const config = (api as any).config ?? {}
 
-    // ── 1. Companion Media Tools (unique to Openlove) ────────────────────
+    // ── 1. Companion Media Tools (unique to Opencrush) ────────────────────
     registerCompanionTools(api, config)
 
     // ── 2. Character Personality Hook ────────────────────────────────────
@@ -116,9 +116,9 @@ function registerCompanionTools(api: OpenClawPluginApi, config: Record<string, a
 
   // Take a selfie
   api.registerTool({
-    name: 'openlove_take_selfie',
+    name: 'opencrush_take_selfie',
     label: 'Take Selfie',
-    description: 'Take a selfie PHOTO/IMAGE. ONLY use for: selfie, photo, picture, "show me", "let me see you", "what do you look like". NEVER use this for voice/audio/video requests.',
+    description: 'Take a selfie PHOTO/IMAGE. ONLY call this tool when the user EXPLICITLY asks for a photo/selfie/picture. Keywords: "selfie", "photo", "pic", "show me", "看看你". NEVER call this during normal conversation. If the user is just chatting, DO NOT call this tool.',
     parameters: {
       type: 'object',
       properties: {
@@ -130,20 +130,28 @@ function registerCompanionTools(api: OpenClawPluginApi, config: Record<string, a
     async execute(_toolCallId: string, params: unknown) {
       const p = params as Record<string, any>
       try {
-        const { ImageEngine } = await import('@openlove/media')
+        const { ImageEngine } = await import('@opencrush/media')
         const engine = new ImageEngine({
           falKey: config.falKey ?? process.env.FAL_KEY,
           model: process.env.IMAGE_MODEL ?? 'fal-ai/flux-realism',
         })
+        // Inject time-of-day lighting context when user doesn't specify scene/time
+        const timeCtx = getTimeContext(config)
+        const enrichedPrompt = `${p.description}, ${timeCtx}`
+
         const buffer = await engine.generateSelfie({
-          prompt: p.description,
+          prompt: enrichedPrompt,
           style: p.style ?? 'casual',
           referenceImagePath: findReferenceImage(config),
         })
         if (!buffer) return toolResult('Camera unavailable right now — no FAL_KEY configured.')
 
-        const path = join(tmpdir(), `openlove-selfie-${Date.now()}.jpg`)
+        const path = join(tmpdir(), `opencrush-selfie-${Date.now()}.jpg`)
         writeFileSync(path, buffer)
+
+        // Archive to character's social-media folder
+        archiveMedia(config, buffer, 'selfie', 'jpg')
+
         return toolResult(`Selfie saved to ${path}. Send this image file to the user.`)
       } catch (err) {
         return toolResult(`Selfie failed: ${err}`)
@@ -153,7 +161,7 @@ function registerCompanionTools(api: OpenClawPluginApi, config: Record<string, a
 
   // Send a voice message
   api.registerTool({
-    name: 'openlove_voice_message',
+    name: 'opencrush_voice_message',
     label: 'Voice Message',
     description: 'Send a VOICE/AUDIO message. Use for: "hear your voice", "voice message", "say something", "talk to me", "send voice", "audio". This is for SOUND, not photos or videos.',
     parameters: {
@@ -166,7 +174,7 @@ function registerCompanionTools(api: OpenClawPluginApi, config: Record<string, a
     async execute(_toolCallId: string, params: unknown) {
       const p = params as Record<string, any>
       try {
-        const { VoiceEngine } = await import('@openlove/media')
+        const { VoiceEngine } = await import('@opencrush/media')
         const engine = new VoiceEngine({
           provider: (config.ttsProvider ?? process.env.TTS_PROVIDER) as any,
           elevenLabsApiKey: config.elevenLabsApiKey ?? process.env.ELEVENLABS_API_KEY,
@@ -178,7 +186,7 @@ function registerCompanionTools(api: OpenClawPluginApi, config: Record<string, a
         const buffer = await engine.textToSpeech(p.text)
         if (!buffer) return toolResult('Voice unavailable.')
 
-        const path = join(tmpdir(), `openlove-voice-${Date.now()}.mp3`)
+        const path = join(tmpdir(), `opencrush-voice-${Date.now()}.mp3`)
         writeFileSync(path, buffer)
         return toolResult(`Voice message saved to ${path}. Send this audio file to the user.`)
       } catch (err) {
@@ -189,7 +197,7 @@ function registerCompanionTools(api: OpenClawPluginApi, config: Record<string, a
 
   // Record a short video
   api.registerTool({
-    name: 'openlove_record_video',
+    name: 'opencrush_record_video',
     label: 'Record Video',
     description: 'Record a short VIDEO clip (3-8 seconds). Use for: "send video", "record video", "video of", "film", "clip". This produces a VIDEO file, not a photo.',
     parameters: {
@@ -202,16 +210,23 @@ function registerCompanionTools(api: OpenClawPluginApi, config: Record<string, a
     async execute(_toolCallId: string, params: unknown) {
       const p = params as Record<string, any>
       try {
-        const { VideoEngine } = await import('@openlove/media')
+        const { VideoEngine } = await import('@opencrush/media')
         const engine = new VideoEngine({
           falKey: config.falKey ?? process.env.FAL_KEY,
           referenceImagePath: findReferenceImage(config),
         })
-        const buffer = await engine.generateClip(p.description)
+        // Inject time-of-day lighting context for video generation
+        const timeCtx = getTimeContext(config)
+        const enrichedPrompt = `${p.description}, ${timeCtx}`
+        const buffer = await engine.generateClip(enrichedPrompt)
         if (!buffer) return toolResult('Video recording unavailable.')
 
-        const path = join(tmpdir(), `openlove-video-${Date.now()}.mp4`)
+        const path = join(tmpdir(), `opencrush-video-${Date.now()}.mp4`)
         writeFileSync(path, buffer)
+
+        // Archive to character's social-media folder
+        archiveMedia(config, buffer, 'video', 'mp4')
+
         return toolResult(`Video saved to ${path}. Send this video to the user.`)
       } catch (err) {
         return toolResult(`Video failed: ${err}`)
@@ -239,7 +254,7 @@ function registerCharacterHook(api: OpenClawPluginApi, config: Record<string, an
       // If there's a pending activity prompt, inject it as an instruction
       let activityInstruction = ''
       if (pendingActivityPrompt) {
-        activityInstruction = `\n\n## Activity Instruction\n${pendingActivityPrompt}\nAfter completing this activity, call the openlove_activity_update tool to update your status.`
+        activityInstruction = `\n\n## Activity Instruction\n${pendingActivityPrompt}\nAfter completing this activity, call the opencrush_activity_update tool to update your status.`
         pendingActivityPrompt = null // consume it
       }
 
@@ -253,7 +268,7 @@ function registerCharacterHook(api: OpenClawPluginApi, config: Record<string, an
 // ── 3. Prompt-Driven Activity Service ───────────────────────────────────────
 
 // Shared state for cross-function access
-let activityManagerInstance: import('@openlove/autonomous').ActivityManager | null = null
+let activityManagerInstance: import('@opencrush/autonomous').ActivityManager | null = null
 let pendingActivityPrompt: string | null = null
 
 /**
@@ -292,7 +307,7 @@ function registerActivityService(
 
   // Register a tool for the AI to update its own activity status
   api.registerTool({
-    name: 'openlove_activity_update',
+    name: 'opencrush_activity_update',
     label: 'Update Activity',
     description: 'Update your current activity status. Call this when you start or finish an activity (listening to music, watching videos, browsing, etc.).',
     parameters: {
@@ -321,10 +336,10 @@ function registerActivityService(
   })
 
   api.registerService({
-    id: 'openlove-activity',
+    id: 'opencrush-activity',
     async start() {
       try {
-        const { ActivityManager, MusicEngine } = await import('@openlove/autonomous')
+        const { ActivityManager, MusicEngine } = await import('@opencrush/autonomous')
         activityManagerInstance = new ActivityManager()
 
         const music = new MusicEngine({
@@ -354,7 +369,8 @@ function registerActivityService(
               const prompts = ACTIVITY_PROMPTS.music ?? []
               pendingActivityPrompt = prompts[Math.floor(Math.random() * prompts.length)]
                 + ` Hint: try "${track.track}" by ${track.artist}.`
-            } catch {
+            } catch (err) {
+              console.warn('[Openclaw] Music activity failed:', (err as Error).message)
               const prompts = ACTIVITY_PROMPTS.music ?? []
               pendingActivityPrompt = prompts[Math.floor(Math.random() * prompts.length)]
             }
@@ -425,7 +441,7 @@ function registerCommands(api: OpenClawPluginApi): void {
     description: 'Ask the companion to take a quick selfie',
     acceptsArgs: true,
     handler: () => ({
-      text: 'Sure, let me take a selfie for you! *uses openlove_take_selfie tool*',
+      text: 'Sure, let me take a selfie for you! *uses opencrush_take_selfie tool*',
     }),
   })
 }
@@ -434,7 +450,7 @@ function registerCommands(api: OpenClawPluginApi): void {
 
 function registerActivityStatusTool(api: OpenClawPluginApi): void {
   api.registerTool({
-    name: 'openlove_activity_status',
+    name: 'opencrush_activity_status',
     label: 'Activity Status',
     description: 'Check what you are currently doing — your current activity and recent history. Use when asked "what are you doing?" or "what have you been up to?"',
     parameters: {
@@ -457,7 +473,7 @@ function registerActivityStatusTool(api: OpenClawPluginApi): void {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function buildActivityState(p: Record<string, any>): import('@openlove/autonomous').ActivityState {
+function buildActivityState(p: Record<string, any>): import('@opencrush/autonomous').ActivityState {
   switch (p.type) {
     case 'listening':
       return { type: 'listening', track: p.title ?? 'unknown', artist: p.details ?? 'unknown' }
@@ -470,7 +486,7 @@ function buildActivityState(p: Record<string, any>): import('@openlove/autonomou
   }
 }
 
-function describeActivity(activity: import('@openlove/autonomous').ActivityState): string {
+function describeActivity(activity: import('@opencrush/autonomous').ActivityState): string {
   switch (activity.type) {
     case 'listening': return `Listening to "${activity.track}" by ${activity.artist}`
     case 'watching': return `Watching ${activity.title}${activity.details ? ` (${activity.details})` : ''}`
@@ -518,11 +534,14 @@ function loadCharacterBlueprint(config: Record<string, any>): string | null {
       '### Intent → Tool mapping:',
       '| User intent keywords | Tool to use |',
       '|---|---|',
-      '| voice, hear you, listen, say something, talk, speak, audio, 声音, 语音, 说话 | `openlove_voice_message` |',
-      '| selfie, photo, picture, pic, show me, see you, what you look like, 自拍, 照片, 看看你 | `openlove_take_selfie` |',
-      '| video, clip, film, record, 视频, 录像 | `openlove_record_video` |',
+      '| voice, hear you, listen, say something, talk, speak, audio, 声音, 语音, 说话 | `opencrush_voice_message` |',
+      '| selfie, photo, picture, pic, show me, see you, what you look like, 自拍, 照片, 看看你 | `opencrush_take_selfie` |',
+      '| video, clip, film, record, 视频, 录像 | `opencrush_record_video` |',
       '',
       '### Rules:',
+      '- **DO NOT send selfies/photos/videos unless the user EXPLICITLY asks for one.** Normal conversation = text only. No exceptions.',
+      '- Chatting, reacting, sharing thoughts, discussing topics → NEVER attach a selfie. Just reply with text.',
+      '- Only use media tools when the user says words like: "selfie", "photo", "pic", "show me", "send a video", "voice message", etc.',
       '- Match the user\'s INTENT, not just keywords. "wanna hear your voice" = VOICE, not selfie.',
       '- "can you give me the video" = VIDEO, not selfie.',
       '- NEVER send a selfie when the user asks for voice/audio/video.',
@@ -536,8 +555,55 @@ function loadCharacterBlueprint(config: Record<string, any>): string | null {
       '- Keep location, outfit, and time-of-day CONSISTENT. No teleporting between scenes.',
       '- The description you pass to the media tool must reflect the CURRENT conversation scene.',
     ].join('\n')
-  } catch {
+  } catch (err) {
+    console.warn('[Openclaw] System prompt build failed:', (err as Error).message)
     return null
+  }
+}
+
+/**
+ * Get time-of-day context string based on character's timezone.
+ * Used to inject realistic lighting/scene into media generation prompts
+ * when the user doesn't specify a time or scene.
+ */
+function getTimeContext(config: Record<string, any>): string {
+  const tz = config.timezone ?? process.env.CHARACTER_TIMEZONE ?? 'America/Los_Angeles'
+  let hour: number
+  try {
+    const timeStr = new Date().toLocaleString('en-US', { timeZone: tz, hour: 'numeric', hour12: false })
+    hour = parseInt(timeStr, 10)
+  } catch {
+    hour = new Date().getHours()
+  }
+
+  if (hour >= 6 && hour < 9) return 'early morning, soft golden sunrise light, cozy'
+  if (hour >= 9 && hour < 12) return 'morning, bright natural daylight, fresh'
+  if (hour >= 12 && hour < 14) return 'midday, bright overhead light, warm'
+  if (hour >= 14 && hour < 17) return 'afternoon, warm golden hour approaching'
+  if (hour >= 17 && hour < 20) return 'evening, golden hour sunset glow, warm tones'
+  if (hour >= 20 && hour < 23) return 'night, soft indoor warm lamp lighting, cozy room'
+  return 'late night, dim ambient lighting, moody'
+}
+
+/** Archive media to characters/{name}/social-media/ for persistent storage. */
+function archiveMedia(config: Record<string, any>, buffer: Buffer, label: string, ext: string): void {
+  try {
+    const characterName = config.characterName ?? process.env.CHARACTER_NAME
+    if (!characterName) return
+
+    const charDir = config.charactersDir ?? join(process.cwd(), 'characters', characterName)
+    const archiveDir = join(charDir, 'social-media')
+    mkdirSync(archiveDir, { recursive: true })
+
+    const now = new Date()
+    const datePart = now.toISOString().slice(0, 10)
+    const timePart = now.toTimeString().slice(0, 8).replace(/:/g, '-')
+    const rand = Math.random().toString(36).slice(2, 6)
+    const fileName = `${label}_${datePart}_${timePart}_${rand}.${ext}`
+    writeFileSync(join(archiveDir, fileName), buffer)
+    console.log(`[Openclaw/Archive] Saved ${fileName} (${(buffer.length / 1024).toFixed(0)} KB)`)
+  } catch (err) {
+    console.warn('[Openclaw/Archive] Failed to archive media:', (err as Error).message)
   }
 }
 
@@ -552,7 +618,8 @@ function findReferenceImage(config: Record<string, any>): string | undefined {
       if (existsSync(path)) return path
     }
     return undefined
-  } catch {
+  } catch (err) {
+    console.warn('[Openclaw] Reference image lookup failed:', (err as Error).message)
     return undefined
   }
 }

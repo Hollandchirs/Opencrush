@@ -556,8 +556,8 @@ Optimize this into a vivid, effective portrait generation prompt. Preserve all p
   try {
     const result = await callLLMDirect(provider, apiKey, system, [{ role: 'user', content: userMsg }], 300)
     return result.trim() || basePrompt
-  } catch {
-    // fall through to return basePrompt
+  } catch (err) {
+    console.warn('[Create] LLM prompt optimization failed:', (err as Error).message)
   }
 
   return basePrompt

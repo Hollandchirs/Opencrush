@@ -12,11 +12,17 @@
  */
 
 import * as cron from 'node-cron'
-import { ConversationEngine, ProactiveTrigger } from '@openlove/core'
+import { ConversationEngine, ProactiveTrigger } from '@opencrush/core'
+import type { MediaEngine } from '@opencrush/media'
 import { MusicEngine } from './music.js'
 import { DramaEngine } from './drama.js'
 import { ActivityManager } from './activities.js'
+import type { ActivityState } from './activities.js'
 import { BrowserAgent } from './browser.js'
+import { SocialEngine } from './social/index.js'
+import { SocialContentGenerator } from './social/content-generator.js'
+import type { SocialGenerationContext } from './social/content-generator.js'
+import { saveMediaToArchive } from './social/media-archive.js'
 
 export interface SchedulerConfig {
   engine: ConversationEngine
@@ -24,6 +30,14 @@ export interface SchedulerConfig {
   drama: DramaEngine
   activityManager: ActivityManager
   browserAgent?: BrowserAgent
+  /** Social engine for Twitter posting */
+  socialEngine?: SocialEngine
+  /** Media engine for generating selfies/videos */
+  mediaEngine?: MediaEngine
+  /** Enable autonomous social posting */
+  socialAutoPost?: boolean
+  /** Path to characters directory (for media archiving) */
+  charactersDir?: string
   quietHoursStart?: number  // 0-23, default 23
   quietHoursEnd?: number    // 0-23, default 8
   minIntervalMinutes?: number  // minimum gap between proactive messages
@@ -71,6 +85,14 @@ export class AutonomousScheduler {
     this.jobs.push(
       cron.schedule('*/30 * * * *', () => this.checkMissingUser())
     )
+
+    // Social media posting — 7 windows per day, 70% chance each → ~4-5 posts/day
+    if (this.config.socialAutoPost && this.config.socialEngine && this.config.mediaEngine) {
+      this.jobs.push(
+        cron.schedule('0 9,11,13,15,17,19,21 * * *', () => this.maybeSocialPost())
+      )
+      console.log('[Autonomous] Social auto-posting enabled (7 windows/day, ~4-5 posts)')
+    }
 
     // Start the autonomous activity loop — picks activities based on daily routine
     this.startActivityLoop()
@@ -208,6 +230,107 @@ export class AutonomousScheduler {
     await this.sendIfAppropriate({ type: 'morning' })
   }
 
+  /**
+   * Maybe post to social media. Called 7 times/day (9am-9pm every 2h).
+   * 70% probability per window → ~4-5 posts/day on average.
+   */
+  private async maybeSocialPost(): Promise<void> {
+    if (this.isQuietHours()) return
+    if (!this.config.socialEngine?.isReady()) return
+    if (!this.config.mediaEngine) return
+
+    // 70% chance per window (7 windows × 0.7 = ~4.9 posts/day)
+    if (Math.random() > 0.70) {
+      console.log('[Autonomous] Social post — dice roll skipped')
+      return
+    }
+
+    console.log('[Autonomous] Generating social post...')
+    try {
+      // Build activity context for relevant posts
+      const context = await this.buildSocialContext()
+
+      const generator = new SocialContentGenerator(
+        this.config.engine,
+        this.config.mediaEngine,
+        this.config.engine.characterBlueprint,
+        context,
+      )
+
+      const content = await generator.generate()
+      if (!content) {
+        console.warn('[Autonomous] Social content generation returned null')
+        return
+      }
+
+      // Archive media to disk before posting
+      if (content.mediaBuffer && content.mediaType && this.config.charactersDir) {
+        try {
+          const charName = this.config.engine.characterBlueprint?.name ?? 'default'
+          saveMediaToArchive({
+            characterName: charName,
+            charactersDir: this.config.charactersDir,
+            mediaBuffer: content.mediaBuffer,
+            mediaType: content.mediaType,
+            contentType: content.type,
+          })
+        } catch (err) {
+          console.warn('[Autonomous] Media archive failed:', (err as Error).message)
+        }
+      }
+
+      const results = await this.config.socialEngine!.post(content.caption, {
+        mediaBuffer: content.mediaBuffer,
+        mediaType: content.mediaType,
+      })
+
+      const posted = results.find(r => r.status === 'posted')
+      if (posted) {
+        // Log to memory
+        const memory = this.config.engine.getMemory()
+        await memory.logEpisode({
+          type: 'event',
+          title: `Posted on Twitter (${content.type})`,
+          description: content.caption.slice(0, 200),
+          timestamp: Date.now(),
+        })
+        console.log(`[Autonomous] Social post published: ${content.type}`)
+      }
+    } catch (err) {
+      console.error('[Autonomous] Social post failed:', err)
+    }
+  }
+
+  /**
+   * Build context from current activity and browser state
+   * so social posts reference what the AI is currently doing.
+   */
+  private async buildSocialContext(): Promise<SocialGenerationContext> {
+    const ctx: SocialGenerationContext = {}
+
+    // Current activity description
+    const activity = this.config.activityManager.getCurrentActivity()
+    ctx.currentActivity = describeActivity(activity)
+
+    // Recent activity narrative
+    ctx.recentActivities = this.config.activityManager.getRecentActivitySummary(3)
+
+    // Browser page info (if available and currently browsing)
+    if (this.config.browserAgent?.isAvailable()) {
+      try {
+        const pageInfo = await this.config.browserAgent.getCurrentPageInfo()
+        if (pageInfo) {
+          ctx.browserPageTitle = pageInfo.title
+          ctx.browserUrl = pageInfo.url
+        }
+      } catch {
+        /* browser may not be accessible */
+      }
+    }
+
+    return ctx
+  }
+
   private async listenToMusic(): Promise<void> {
     try {
       const track = await this.config.music.listenToSomething()
@@ -341,36 +464,52 @@ export class AutonomousScheduler {
   private async browseRandom(): Promise<void> {
     if (this.isQuietHours()) return
 
-    const activities = [
-      { title: 'scrolling Twitter', label: 'Twitter' },
-      { title: 'reading articles', label: 'the news' },
-      { title: 'shopping online', label: 'online shopping' },
-      { title: 'scrolling Pinterest', label: 'Pinterest' },
-      { title: 'reading Reddit', label: 'Reddit' },
-      { title: 'looking at memes', label: 'memes' },
-    ]
-    const activity = activities[Math.floor(Math.random() * activities.length)]
-
     // Randomized duration: 5-12 minutes
     const durationMs = (5 + Math.random() * 7) * 60 * 1000
 
+    // If browser is available, open a real website and sync activity status
+    if (this.config.browserAgent?.isAvailable()) {
+      const result = await this.config.browserAgent.browseRandom()
+      if (result) {
+        const activityTitle = `scrolling ${result.site}`
+
+        this.config.activityManager.startActivity(
+          { type: 'browsing', title: activityTitle },
+          durationMs
+        )
+
+        await this.config.engine.getMemory().logEpisode({
+          type: 'event',
+          title: `Was ${activityTitle}`,
+          description: `Spent some time browsing ${result.site}.`,
+          timestamp: Date.now(),
+        })
+
+        console.log(`[Autonomous] ${activityTitle} (browser opened: ${result.site})`)
+        return
+      }
+    }
+
+    // Fallback: no browser available — just set a text-only activity status
+    const activities = [
+      'scrolling Twitter', 'reading articles', 'shopping online',
+      'scrolling Pinterest', 'reading Reddit', 'looking at memes',
+    ]
+    const activity = activities[Math.floor(Math.random() * activities.length)]
+
     this.config.activityManager.startActivity(
-      { type: 'browsing', title: activity.title },
+      { type: 'browsing', title: activity },
       durationMs
     )
 
-    if (this.config.browserAgent?.isAvailable()) {
-      await this.config.browserAgent.browseRandom()
-    }
-
     await this.config.engine.getMemory().logEpisode({
       type: 'event',
-      title: `Was ${activity.title}`,
-      description: `Spent some time ${activity.title}.`,
+      title: `Was ${activity}`,
+      description: `Spent some time ${activity}.`,
       timestamp: Date.now(),
     })
 
-    console.log(`[Autonomous] ${activity.title}`)
+    console.log(`[Autonomous] ${activity} (no browser)`)
   }
 
   private async maybeRandomThought(): Promise<void> {
@@ -403,5 +542,19 @@ export class AutonomousScheduler {
     if (timeSinceLastMessage > maxGapMs && !this.isQuietHours()) {
       await this.sendIfAppropriate({ type: 'missing_you' })
     }
+  }
+}
+
+/** Convert an ActivityState to a human-readable description. */
+function describeActivity(activity: ActivityState): string {
+  switch (activity.type) {
+    case 'listening':
+      return `listening to "${activity.track}" by ${activity.artist}${activity.album ? ` (${activity.album})` : ''}`
+    case 'watching':
+      return `watching ${activity.title}${activity.details ? ` — ${activity.details}` : ''}`
+    case 'browsing':
+      return activity.title ? `browsing ${activity.title}` : 'browsing the web'
+    case 'idle':
+      return activity.label
   }
 }

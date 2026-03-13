@@ -5,14 +5,18 @@
  * Uses TMDB API for real show data (episode descriptions, ratings).
  * When she "finishes" an episode, triggers a proactive message.
  *
- * Tracking state: stored in the character's SQLite memory DB as episodes.
+ * Watch history is persisted to SQLite so progress survives restarts.
  */
+
+import type Database from 'better-sqlite3'
 
 export interface DramaConfig {
   tmdbApiKey?: string
   // Show preferences extracted from SOUL.md
   preferredGenres?: string[]
   preferredLanguages?: string[]
+  // SQLite database for persistence (optional — falls back to in-memory)
+  db?: Database.Database
 }
 
 export interface ShowProgress {
@@ -35,11 +39,62 @@ export interface EpisodeInfo {
 
 export class DramaEngine {
   private config: DramaConfig
-  // In-memory watch history (persisted via MemorySystem in scheduler)
   private watchHistory: Map<number, ShowProgress> = new Map()
+  private db?: Database.Database
 
   constructor(config: DramaConfig) {
     this.config = config
+    this.db = config.db
+
+    if (this.db) {
+      this.initSchema()
+      this.loadFromDb()
+    }
+  }
+
+  private initSchema(): void {
+    this.db?.exec(`
+      CREATE TABLE IF NOT EXISTS drama_progress (
+        show_id       INTEGER PRIMARY KEY,
+        show_name     TEXT NOT NULL,
+        season        INTEGER NOT NULL,
+        episode       INTEGER NOT NULL,
+        total_episodes INTEGER,
+        last_watched  INTEGER NOT NULL
+      );
+    `)
+  }
+
+  private loadFromDb(): void {
+    if (!this.db) return
+    const rows = this.db.prepare(`SELECT * FROM drama_progress`).all() as Array<{
+      show_id: number; show_name: string; season: number;
+      episode: number; total_episodes: number | null; last_watched: number
+    }>
+    for (const row of rows) {
+      this.watchHistory.set(row.show_id, {
+        showId: row.show_id,
+        showName: row.show_name,
+        currentSeason: row.season,
+        currentEpisode: row.episode,
+        totalEpisodes: row.total_episodes ?? undefined,
+        lastWatched: row.last_watched,
+      })
+    }
+    if (rows.length > 0) {
+      console.log(`[Drama] Loaded ${rows.length} shows from database`)
+    }
+  }
+
+  private persistProgress(progress: ShowProgress): void {
+    if (!this.db) return
+    this.db.prepare(`
+      INSERT OR REPLACE INTO drama_progress (show_id, show_name, season, episode, total_episodes, last_watched)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      progress.showId, progress.showName, progress.currentSeason,
+      progress.currentEpisode, progress.totalEpisodes ?? null, progress.lastWatched
+    )
   }
 
   /**
@@ -62,6 +117,7 @@ export class DramaEngine {
       if (info) {
         inProgress.currentEpisode = nextEpisode
         inProgress.lastWatched = Date.now()
+        this.persistProgress(inProgress)
         return info
       }
     }
@@ -103,7 +159,8 @@ export class DramaEngine {
         summary: data.overview?.slice(0, 200),
         airDate: data.air_date,
       }
-    } catch {
+    } catch (err) {
+      console.warn('[Drama] Failed to fetch episode info:', (err as Error).message)
       return null
     }
   }
@@ -122,14 +179,17 @@ export class DramaEngine {
 
     const show = popularShows[Math.floor(Math.random() * popularShows.length)]
 
-    // Track this show
-    this.watchHistory.set(Math.random() * 1000 | 0, {
-      showId: Math.random() * 1000 | 0,
+    // Track this show with a stable ID based on name hash
+    const showId = hashString(show.showName)
+    const progress: ShowProgress = {
+      showId,
       showName: show.showName,
       currentSeason: show.season,
       currentEpisode: show.episode,
       lastWatched: Date.now(),
-    })
+    }
+    this.watchHistory.set(showId, progress)
+    this.persistProgress(progress)
 
     return show
   }
@@ -137,10 +197,22 @@ export class DramaEngine {
   loadProgress(progress: ShowProgress[]): void {
     for (const p of progress) {
       this.watchHistory.set(p.showId, p)
+      this.persistProgress(p)
     }
   }
 
   getProgress(): ShowProgress[] {
     return [...this.watchHistory.values()]
   }
+}
+
+/** Simple string hash for generating stable show IDs */
+function hashString(str: string): number {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash // Convert to 32bit integer
+  }
+  return Math.abs(hash)
 }

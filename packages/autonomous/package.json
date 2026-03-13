@@ -1,5 +1,5 @@
 {
-  "name": "@openlove/autonomous",
+  "name": "@opencrush/autonomous",
   "version": "0.1.0",
   "description": "Autonomous behavior: scheduler, music awareness, drama tracking, proactive messaging",
   "main": "./dist/index.js",
@@ -15,7 +15,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@openlove/core": "workspace:*",
+    "@opencrush/core": "workspace:*",
     "node-cron": "^3.0.3",
     "playwright": "^1.49.0"
   },

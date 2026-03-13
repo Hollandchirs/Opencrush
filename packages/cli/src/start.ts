@@ -1,7 +1,7 @@
 /**
  * Start Command
  *
- * Boots up the full Openlove stack:
+ * Boots up the full Opencrush stack:
  * 1. Load config from .env
  * 2. Initialize core engine (blueprint + memory)
  * 3. Start active bridges (Discord, Telegram, WhatsApp)
@@ -13,19 +13,19 @@ import dotenv from 'dotenv'
 import { resolve } from 'path'
 dotenv.config({ path: resolve(process.env.INIT_CWD ?? process.cwd(), '.env') })
 import chalk from 'chalk'
-import { ConversationEngine } from '@openlove/core'
-import { MediaEngine } from '@openlove/media'
-import { AutonomousScheduler, MusicEngine, DramaEngine, ActivityManager, BrowserAgent } from '@openlove/autonomous'
+import { ConversationEngine } from '@opencrush/core'
+import { MediaEngine } from '@opencrush/media'
+import { AutonomousScheduler, MusicEngine, DramaEngine, ActivityManager, BrowserAgent, SocialEngine } from '@opencrush/autonomous'
 import { join } from 'path'
 import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs'
 import { execSync } from 'child_process'
 
 const ROOT_DIR = process.env.INIT_CWD ?? process.cwd()
 // Use /tmp for PID file so it's always the same path regardless of cwd
-const PID_FILE = '/tmp/openlove.pid'
+const PID_FILE = '/tmp/opencrush.pid'
 
 /**
- * Kill any existing Openlove process found in the PID file.
+ * Kill any existing Opencrush process found in the PID file.
  * Returns true if a process was killed.
  */
 export function killExistingProcess(): boolean {
@@ -48,7 +48,7 @@ export function killExistingProcess(): boolean {
     } catch { /* ignore */ }
   }
 
-  // Strategy 2: Kill ALL other openlove processes by pattern (covers pnpm spawns)
+  // Strategy 2: Kill ALL other opencrush processes by pattern (covers pnpm spawns)
   // This is critical because pnpm creates parent processes not tracked by PID file
   try {
     const result = execSync(
@@ -62,7 +62,7 @@ export function killExistingProcess(): boolean {
         if (!isNaN(pid) && pid !== myPid) {
           try {
             process.kill(pid, 'SIGTERM')
-            console.log(chalk.yellow(`  Killed stale openlove process (PID ${pid})`))
+            console.log(chalk.yellow(`  Killed stale opencrush process (PID ${pid})`))
             killed = true
           } catch { /* already dead */ }
         }
@@ -70,10 +70,10 @@ export function killExistingProcess(): boolean {
     }
   } catch { /* grep found nothing — no existing processes */ }
 
-  // Also kill parent pnpm processes running @openlove/cli
+  // Also kill parent pnpm processes running @opencrush/cli
   try {
     execSync(
-      `pkill -f "@openlove/cli run start" 2>/dev/null || true`,
+      `pkill -f "@opencrush/cli run start" 2>/dev/null || true`,
       { timeout: 3000 }
     )
   } catch { /* ignore */ }
@@ -96,8 +96,8 @@ function cleanupPidFile(): void {
   try { unlinkSync(PID_FILE) } catch { /* ignore */ }
 }
 
-export async function startOpenlove(): Promise<void> {
-  console.log(chalk.magenta('\n  💝 Starting Openlove...\n'))
+export async function startOpencrush(): Promise<void> {
+  console.log(chalk.magenta('\n  💝 Starting Opencrush...\n'))
 
   // Write PID file for process management
   writePidFile()
@@ -124,6 +124,8 @@ export async function startOpenlove(): Promise<void> {
       // Local
       ollamaBaseUrl: config.OLLAMA_BASE_URL,
       ollamaModel: config.OLLAMA_MODEL,
+      // Jina AI — free multilingual embeddings (JINA_API_KEY)
+      jinaApiKey: config.JINA_API_KEY,
       // Optional model override
       model: config.LLM_MODEL,
     },
@@ -161,16 +163,49 @@ export async function startOpenlove(): Promise<void> {
   const activityManager = new ActivityManager()
 
   // Browser agent (optional — requires Playwright, disabled by default)
+  // Modes: 'cdp' (connect to user's Chrome), 'persistent' (saved profile), 'fresh' (isolated)
   let browserAgent: BrowserAgent | undefined
   if (config.BROWSER_AUTOMATION_ENABLED === 'true') {
-    browserAgent = new BrowserAgent()
+    browserAgent = new BrowserAgent({
+      mode: (config.BROWSER_MODE as 'cdp' | 'persistent' | 'fresh' | 'chrome') || undefined,
+      cdpEndpoint: config.BROWSER_CDP_ENDPOINT,
+      profileDir: config.BROWSER_PROFILE_DIR,
+    })
   }
+
+  // Social media engine (optional — API v2 preferred, scraper fallback)
+  const hasTwitterOAuth2 = config.TWITTER_CLIENT_ID && config.TWITTER_CLIENT_SECRET
+  const hasTwitterApi = config.TWITTER_API_KEY && config.TWITTER_API_SECRET && config.TWITTER_ACCESS_TOKEN && config.TWITTER_ACCESS_TOKEN_SECRET
+  const hasTwitterScraper = config.TWITTER_USERNAME && config.TWITTER_PASSWORD
+  const hasAnyTwitter = hasTwitterOAuth2 || hasTwitterApi || hasTwitterScraper
+  const socialEngine = new SocialEngine({
+    twitter: hasAnyTwitter ? {
+      clientId: config.TWITTER_CLIENT_ID,
+      clientSecret: config.TWITTER_CLIENT_SECRET,
+      oauth2TokenFile: hasTwitterOAuth2 ? join(ROOT_DIR, '.twitter-oauth2-tokens.json') : undefined,
+      apiKey: config.TWITTER_API_KEY ?? config.TWITTER_CONSUMER_KEY,
+      apiSecret: config.TWITTER_API_SECRET ?? config.TWITTER_CONSUMER_SECRET,
+      accessToken: config.TWITTER_ACCESS_TOKEN,
+      accessTokenSecret: config.TWITTER_ACCESS_TOKEN_SECRET,
+      username: config.TWITTER_USERNAME,
+      password: config.TWITTER_PASSWORD,
+      email: config.TWITTER_EMAIL,
+      cookiePath: join(ROOT_DIR, '.twitter-cookies.json'),
+    } : undefined,
+    minPostIntervalMinutes: parseInt(config.SOCIAL_MIN_POST_INTERVAL ?? '120'),
+    autoPost: config.SOCIAL_AUTO_POST === 'true',
+  })
+
+  // Initialize social engine (non-blocking — won't crash if unavailable)
+  socialEngine.initialize().catch(err => {
+    console.error('[Social] Failed to initialize:', err)
+  })
 
   // ── Start bridges ───────────────────────────────────────────────────────
   const bridges: Array<{ sendProactiveMessage: (r: any) => Promise<void>; stop: () => Promise<void>; updatePresence?: (a: any) => void }> = []
 
   if (config.DISCORD_BOT_TOKEN) {
-    const { DiscordBridge } = await import('@openlove/bridge-discord')
+    const { DiscordBridge } = await import('@opencrush/bridge-discord')
     const discord = new DiscordBridge({
       token: config.DISCORD_BOT_TOKEN,
       clientId: config.DISCORD_CLIENT_ID ?? '',
@@ -191,7 +226,7 @@ export async function startOpenlove(): Promise<void> {
   }
 
   if (config.TELEGRAM_BOT_TOKEN) {
-    const { TelegramBridge } = await import('@openlove/bridge-telegram')
+    const { TelegramBridge } = await import('@opencrush/bridge-telegram')
     const telegram = new TelegramBridge({
       token: config.TELEGRAM_BOT_TOKEN,
       ownerId: parseInt(config.TELEGRAM_OWNER_ID ?? '0'),
@@ -207,7 +242,7 @@ export async function startOpenlove(): Promise<void> {
     console.log(chalk.yellow(`  ⚡ WhatsApp: Scan the QR code below with your phone...`))
     // WhatsApp bridge uses dynamic import as Baileys has complex deps
     try {
-      const { WhatsAppBridge } = await import('@openlove/bridge-whatsapp' as any)
+      const { WhatsAppBridge } = await import('@opencrush/bridge-whatsapp' as any)
       const wa = new WhatsAppBridge({ engine, media })
       await wa.start()
       bridges.push(wa)
@@ -239,6 +274,10 @@ export async function startOpenlove(): Promise<void> {
     drama: dramaEngine,
     activityManager,
     browserAgent,
+    socialEngine,
+    mediaEngine: media,
+    socialAutoPost: config.SOCIAL_AUTO_POST === 'true',
+    charactersDir: join(ROOT_DIR, 'characters'),
     quietHoursStart: parseInt(config.QUIET_HOURS_START ?? '23'),
     quietHoursEnd: parseInt(config.QUIET_HOURS_END ?? '8'),
     minIntervalMinutes: parseInt(config.PROACTIVE_MESSAGE_MIN_INTERVAL ?? '60'),
@@ -301,6 +340,8 @@ function loadConfig(): Record<string, string | undefined> {
     // Local
     OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
     OLLAMA_MODEL: process.env.OLLAMA_MODEL,
+    // Embedding
+    JINA_API_KEY: process.env.JINA_API_KEY,
     DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
     DISCORD_OWNER_ID: process.env.DISCORD_OWNER_ID,
@@ -324,6 +365,23 @@ function loadConfig(): Record<string, string | undefined> {
     PROACTIVE_MESSAGE_MAX_INTERVAL: process.env.PROACTIVE_MESSAGE_MAX_INTERVAL,
     VOICE_CONVERSATION_ENABLED: process.env.VOICE_CONVERSATION_ENABLED,
     BROWSER_AUTOMATION_ENABLED: process.env.BROWSER_AUTOMATION_ENABLED,
+    BROWSER_MODE: process.env.BROWSER_MODE,                 // 'cdp' | 'persistent' | 'fresh'
+    BROWSER_CDP_ENDPOINT: process.env.BROWSER_CDP_ENDPOINT, // default: http://localhost:9222
+    BROWSER_PROFILE_DIR: process.env.BROWSER_PROFILE_DIR,   // default: ~/.opencrush/chrome-profile
+    // Social media — Twitter/X
+    TWITTER_CLIENT_ID: process.env.TWITTER_CLIENT_ID,
+    TWITTER_CLIENT_SECRET: process.env.TWITTER_CLIENT_SECRET,
+    TWITTER_API_KEY: process.env.TWITTER_API_KEY,
+    TWITTER_API_SECRET: process.env.TWITTER_API_SECRET,
+    TWITTER_CONSUMER_KEY: process.env.TWITTER_CONSUMER_KEY,
+    TWITTER_CONSUMER_SECRET: process.env.TWITTER_CONSUMER_SECRET,
+    TWITTER_ACCESS_TOKEN: process.env.TWITTER_ACCESS_TOKEN,
+    TWITTER_ACCESS_TOKEN_SECRET: process.env.TWITTER_ACCESS_TOKEN_SECRET,
+    TWITTER_USERNAME: process.env.TWITTER_USERNAME,
+    TWITTER_PASSWORD: process.env.TWITTER_PASSWORD,
+    TWITTER_EMAIL: process.env.TWITTER_EMAIL,
+    SOCIAL_MIN_POST_INTERVAL: process.env.SOCIAL_MIN_POST_INTERVAL, // minutes between posts (default: 120)
+    SOCIAL_AUTO_POST: process.env.SOCIAL_AUTO_POST,                 // 'true' to enable auto-posting
   }
 }
 

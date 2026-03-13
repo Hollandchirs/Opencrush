@@ -70,7 +70,8 @@ export class MusicEngine {
       this.spotifyToken = data.access_token
       this.tokenExpiry = Date.now() + (data.expires_in - 60) * 1000
       return this.spotifyToken
-    } catch {
+    } catch (err) {
+      console.warn('[Music] Spotify token request failed:', (err as Error).message)
       return null
     }
   }
@@ -114,7 +115,8 @@ export class MusicEngine {
         previewUrl: track.preview_url ?? undefined,
         emotion: guessEmotion(track.name + ' ' + track.album.name),
       }
-    } catch {
+    } catch (err) {
+      console.warn('[Music] Spotify recommendation failed:', (err as Error).message)
       return null
     }
   }

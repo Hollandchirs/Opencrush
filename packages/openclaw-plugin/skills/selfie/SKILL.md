@@ -1,11 +1,11 @@
 ---
-name: openlove-selfie
+name: opencrush-selfie
 description: Take and send photorealistic selfie photos
 user-invocable: true
 metadata: {"requires.env": ["FAL_KEY"]}
 ---
 
-Take a selfie photo using the `openlove_take_selfie` tool.
+Take a selfie photo using the `opencrush_take_selfie` tool.
 
 ## When to Use
 
@@ -15,7 +15,7 @@ Take a selfie photo using the `openlove_take_selfie` tool.
 
 ## How to Use
 
-Call `openlove_take_selfie` with:
+Call `opencrush_take_selfie` with:
 - `description`: Detailed description of the scene — your appearance, outfit, location, lighting, mood
 - `style`: One of `casual`, `mirror`, `close-up`, `location`
 

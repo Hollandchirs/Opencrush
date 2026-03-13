@@ -1,5 +1,5 @@
 {
-  "name": "@openlove/media",
+  "name": "@opencrush/media",
   "version": "0.1.0",
   "description": "Media generation: images (fal.ai), TTS (ElevenLabs/Edge), STT (Whisper)",
   "main": "./dist/index.js",

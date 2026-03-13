@@ -41,14 +41,22 @@ export class MemorySystem {
   private vectorIndex: LocalIndex
   private characterName: string
   private embedFn: (text: string) => Promise<number[]>
+  /** Optional LLM summarize function — injected by engine for conversation compression */
+  private summarizeFn?: (text: string) => Promise<string>
+  /** Cached rolling summary of older conversation history */
+  private conversationSummary: string = ''
+  /** Message ID up to which the summary covers */
+  private summaryUpToId: number = 0
 
   constructor(
     characterName: string,
     dataDir: string,
-    embedFn: (text: string) => Promise<number[]>
+    embedFn: (text: string) => Promise<number[]>,
+    summarizeFn?: (text: string) => Promise<string>
   ) {
     this.characterName = characterName
     this.embedFn = embedFn
+    this.summarizeFn = summarizeFn
 
     const dbPath = join(dataDir, characterName, 'memory.db')
     const vectorPath = join(dataDir, characterName, 'vectors')
@@ -84,6 +92,11 @@ export class MemorySystem {
       CREATE INDEX IF NOT EXISTS idx_episodes_type ON episodes(type);
       CREATE INDEX IF NOT EXISTS idx_episodes_timestamp ON episodes(timestamp);
     `)
+  }
+
+  /** Expose the database for shared use (e.g. relationship tracker) */
+  getDatabase(): Database.Database {
+    return this.db
   }
 
   // ── Working Memory ─────────────────────────────────────────────────────────
@@ -135,16 +148,21 @@ export class MemorySystem {
 
   async addToSemanticMemory(
     text: string,
-    metadata: Record<string, unknown> = {}
+    metadata: Record<string, string | number | boolean> = {}
   ): Promise<void> {
     try {
       if (!await this.vectorIndex.isIndexCreated()) {
         await this.vectorIndex.createIndex({ version: 1, deleteIfExists: false })
       }
+      const importance = (metadata.importance as number) ?? scoreImportance(text)
       const vector = await this.embedFn(text)
-      await this.vectorIndex.insertItem({ vector, metadata: { text, ...metadata } })
-    } catch {
+      await this.vectorIndex.insertItem({
+        vector,
+        metadata: { text, importance, ...metadata },
+      })
+    } catch (err) {
       // Vector memory is best-effort — don't crash if it fails
+      console.warn('[Memory] Vector store write failed:', (err as Error).message)
     }
   }
 
@@ -152,11 +170,31 @@ export class MemorySystem {
     try {
       if (!await this.vectorIndex.isIndexCreated()) return []
       const vector = await this.embedFn(query)
-      const results = await this.vectorIndex.queryItems(vector, topK)
+      // Fetch more candidates for hybrid re-ranking
+      const results = await this.vectorIndex.queryItems(vector, topK * 3)
+
+      const now = Date.now()
+      const DAY_MS = 86_400_000
+
       return results
-        .filter(r => r.score > 0.75)
-        .map(r => (r.item.metadata as { text: string }).text)
-    } catch {
+        .filter(r => r.score > 0.6) // lower threshold, let hybrid scoring decide
+        .map(r => {
+          const meta = r.item.metadata as { text: string; timestamp?: number; importance?: number }
+          const age = now - (meta.timestamp ?? now)
+          const ageDays = age / DAY_MS
+
+          // Hybrid score: semantic similarity + importance bonus - time decay
+          const importance = meta.importance ?? 0.5
+          const decayFactor = Math.exp(-ageDays / 30) // half-life ~21 days
+          const hybridScore = r.score * 0.6 + importance * 0.25 + decayFactor * 0.15
+
+          return { text: meta.text, hybridScore }
+        })
+        .sort((a, b) => b.hybridScore - a.hybridScore)
+        .slice(0, topK)
+        .map(r => r.text)
+    } catch (err) {
+      console.warn('[Memory] Semantic search failed:', (err as Error).message)
       return []
     }
   }
@@ -164,29 +202,86 @@ export class MemorySystem {
   // ── Combined Context Retrieval ─────────────────────────────────────────────
 
   async getContext(userMessage: string): Promise<MemoryContext> {
-    const [recentMessages, semanticContext] = await Promise.all([
-      Promise.resolve(this.getRecentMessages(20)),
+    const RECENT_VERBATIM = 8  // keep last 8 messages as-is
+    const OLDER_BATCH = 20     // fetch more for summarization
+
+    const [allMessages, semanticContext] = await Promise.all([
+      Promise.resolve(this.getRecentMessages(OLDER_BATCH)),
       this.searchSemanticMemory(userMessage),
     ])
 
     const relevantEpisodes = this.getRecentEpisodes(5)
 
+    // Split: recent messages verbatim, older ones get summarized
+    let recentMessages: Message[]
+    if (allMessages.length <= RECENT_VERBATIM) {
+      recentMessages = allMessages
+    } else {
+      const olderMessages = allMessages.slice(0, allMessages.length - RECENT_VERBATIM)
+      const recentVerbatim = allMessages.slice(allMessages.length - RECENT_VERBATIM)
+
+      // Build a rolling summary of older messages if summarize function is available
+      const summary = await this.summarizeOlderMessages(olderMessages)
+      if (summary) {
+        // Inject summary as a synthetic "assistant" message at the start
+        recentMessages = [
+          { role: 'assistant', content: `[Earlier conversation summary: ${summary}]`, timestamp: olderMessages[0].timestamp },
+          ...recentVerbatim,
+        ]
+      } else {
+        // No summarizer — just use the recent verbatim messages
+        recentMessages = recentVerbatim
+      }
+    }
+
     return { recentMessages, relevantEpisodes, semanticContext }
+  }
+
+  /**
+   * Summarize older messages into a compact summary.
+   * Uses rolling cache — only re-summarizes when new messages have aged out.
+   */
+  private async summarizeOlderMessages(messages: Message[]): Promise<string | null> {
+    if (!this.summarizeFn || messages.length === 0) return null
+
+    // Check if we already have a summary covering these messages
+    const latestOlderId = messages[messages.length - 1].timestamp
+    if (this.conversationSummary && latestOlderId <= this.summaryUpToId) {
+      return this.conversationSummary
+    }
+
+    try {
+      const transcript = messages
+        .map(m => `${m.role}: ${m.content.slice(0, 150)}`)
+        .join('\n')
+
+      this.conversationSummary = await this.summarizeFn(
+        `Summarize this conversation in 2-3 sentences, preserving key facts, emotions, and topics discussed:\n\n${transcript}`
+      )
+      this.summaryUpToId = latestOlderId
+      return this.conversationSummary
+    } catch (err) {
+      console.warn('[Memory] Conversation summarization failed:', (err as Error).message)
+      return null
+    }
   }
 
   /**
    * Extract and store important facts from a conversation turn.
    * Called after each exchange to build up long-term memory.
+   * Only embeds messages that contain meaningful, memorable content.
    */
   async consolidate(userMessage: string, assistantResponse: string): Promise<void> {
-    // Store the exchange in working memory
+    // Store the exchange in working memory (always — this is the raw log)
     const now = Date.now()
     this.addMessage({ role: 'user', content: userMessage, timestamp: now })
     this.addMessage({ role: 'assistant', content: assistantResponse, timestamp: now + 1 })
 
-    // Add to semantic memory for later retrieval
-    const exchange = `User said: "${userMessage}" — Response: "${assistantResponse.slice(0, 200)}"`
-    await this.addToSemanticMemory(exchange, { timestamp: now })
+    // Only embed into semantic memory if the message is worth remembering
+    if (isWorthEmbedding(userMessage, assistantResponse)) {
+      const exchange = `User said: "${userMessage}" — Response: "${assistantResponse.slice(0, 200)}"`
+      await this.addToSemanticMemory(exchange, { timestamp: now })
+    }
   }
 
   getMoodContext(): string {
@@ -197,4 +292,93 @@ export class MemorySystem {
     if (latest.type === 'mood') return latest.title
     return ''
   }
+}
+
+// ── Importance scoring (inspired by Zep's high/med/low rating) ────────────
+
+/** Rate memory importance from 0.0 (trivial) to 1.0 (critical personal fact) */
+function scoreImportance(text: string): number {
+  const lower = text.toLowerCase()
+  let score = 0.3 // baseline
+
+  // High importance: personal facts, identity, relationships
+  const highPatterns = [
+    /my (name|birthday|age|job|work|school|major|hometown|家|学校|工作|生日|名字)/i,
+    /i (live|work|study|moved|graduate|毕业|住在|搬到)/i,
+    /boyfriend|girlfriend|partner|husband|wife|engaged|married|男朋友|女朋友|老公|老婆/i,
+    /family|mother|father|sister|brother|parent|爸|妈|哥|姐|弟|妹|家人/i,
+    /allergic|allergy|disease|sick|hospital|过敏|生病|医院/i,
+    /died|death|passed away|去世|离开/i,
+    /promise|swear|答应|发誓/i,
+  ]
+  if (highPatterns.some(p => p.test(lower))) score = 0.9
+
+  // Medium-high: preferences, emotions, plans
+  const medHighPatterns = [
+    /i (love|hate|prefer|enjoy|favorite|最喜欢|讨厌|喜欢)/i,
+    /dream|goal|plan|hope|wish|梦想|目标|计划|希望/i,
+    /feel|feeling|emotion|sad|happy|angry|scared|afraid|感觉|心情|难过|开心|害怕/i,
+    /remember when|do you remember|还记得|你记得/i,
+    /anniversary|birthday|holiday|travel|trip|纪念日|旅行|出差/i,
+  ]
+  if (medHighPatterns.some(p => p.test(lower))) score = Math.max(score, 0.7)
+
+  // Medium: events, activities, opinions
+  const medPatterns = [
+    /yesterday|tomorrow|last week|next week|昨天|明天|上周|下周/i,
+    /bought|purchased|ordered|买了|下单/i,
+    /watching|listened|playing|reading|看了|听了|玩了|读了/i,
+    /because|reason|原因|因为/i,
+    /told|said|mentioned|说过|提到/i,
+  ]
+  if (medPatterns.some(p => p.test(lower))) score = Math.max(score, 0.5)
+
+  return score
+}
+
+// ── Embedding filter ──────────────────────────────────────────────────────
+
+/** Small-talk patterns that don't need to be in long-term memory */
+const SMALLTALK_PATTERNS = [
+  /^(hi|hey|hello|yo|sup|哈喽|你好|嗨|嗯|ok|okay|好的|行|嗯嗯|哈哈|lol|haha|wow|omg|nice|cool)[\s!?.,]*$/i,
+  /^(good morning|good night|晚安|早安|早上好|gm|gn|bye|晚安啦|拜拜)[\s!?.,]*$/i,
+  /^(thanks|thank you|谢谢|thx|ty)[\s!?.,]*$/i,
+  /^(yes|no|yeah|yep|nah|nope|是|不|对|没)[\s!?.,]*$/i,
+]
+
+/**
+ * Determine if an exchange contains enough meaningful content
+ * to be worth embedding into semantic memory.
+ *
+ * Filters: greetings, very short messages, pure small talk.
+ * Keeps: personal facts, preferences, events, emotional moments, plans.
+ */
+function isWorthEmbedding(userMessage: string, assistantResponse: string): boolean {
+  const userTrimmed = userMessage.trim()
+
+  // Too short to be meaningful
+  if (userTrimmed.length < 10) return false
+
+  // Pure small talk
+  if (SMALLTALK_PATTERNS.some(p => p.test(userTrimmed))) return false
+
+  // Check for fact-bearing patterns (names, preferences, events, emotions)
+  const combined = `${userMessage} ${assistantResponse}`.toLowerCase()
+  const factPatterns = [
+    /my (name|age|job|work|school|birthday|favorite|hobby|dog|cat|pet|家|学校|工作|生日)/i,
+    /i (love|hate|like|prefer|enjoy|miss|remember|forgot|want|need|plan|喜欢|讨厌|想)/i,
+    /tomorrow|yesterday|last week|next week|明天|昨天|上周|下周/i,
+    /because|reason|why|因为|原因/i,
+    /feel|feeling|emotion|mood|sad|happy|angry|lonely|感觉|心情|难过|开心|生气/i,
+    /told|said|mentioned|promise|说过|提到|答应/i,
+    /birthday|anniversary|holiday|travel|trip|vacation|旅行|假期|出差/i,
+  ]
+
+  // If it matches any fact pattern, definitely embed
+  if (factPatterns.some(p => p.test(combined))) return true
+
+  // If the user message is reasonably long, it probably has content worth keeping
+  if (userTrimmed.length > 40) return true
+
+  return false
 }
