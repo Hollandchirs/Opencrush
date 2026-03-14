@@ -146,8 +146,6 @@ export class BrowserAgent {
       this.context = await pw.chromium.launchPersistentContext(profileDir, {
         headless: this.config.headless ?? false,
         args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
           '--disable-blink-features=AutomationControlled',
         ],
         viewport: { width: 1280, height: 800 },
@@ -180,8 +178,6 @@ export class BrowserAgent {
         channel: 'chrome',
         headless: this.config.headless ?? false,
         args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
           '--disable-blink-features=AutomationControlled',
         ],
         viewport: { width: 1280, height: 800 },
@@ -205,7 +201,7 @@ export class BrowserAgent {
     try {
       this.browser = await pw.chromium.launch({
         headless: this.config.headless ?? false,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        args: ['--disable-blink-features=AutomationControlled'],
       })
       this.page = await this.browser.newPage()
       this.available = true

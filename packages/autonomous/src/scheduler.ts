@@ -140,15 +140,15 @@ export class AutonomousScheduler {
 
       await this.performRoutineActivity()
 
-      // Random interval until next activity: 20-60 minutes
-      const minMs = 20 * 60 * 1000
-      const maxMs = 60 * 60 * 1000
+      // Random interval until next activity: 8-25 minutes
+      const minMs = 8 * 60 * 1000
+      const maxMs = 25 * 60 * 1000
       const nextInterval = minMs + Math.random() * (maxMs - minMs)
       this.scheduleNextActivity(nextInterval)
     }
 
-    // First activity after a short delay (2-5 min after boot)
-    const bootDelay = (2 + Math.random() * 3) * 60 * 1000
+    // First activity after a short delay (30s-2 min after boot)
+    const bootDelay = (0.5 + Math.random() * 1.5) * 60 * 1000
     this.activityLoopTimer = setTimeout(doNext, bootDelay)
   }
 
